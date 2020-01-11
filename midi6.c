@@ -539,12 +539,12 @@ int smaxold = 0;
 
 
 //Interfrequency options
-#define IFOPTION 2
+#define IFOPTION 0
 
 #if (IFOPTION == 0) //9MHz Filter 9XMF24D (box73.de)
     #define INTERFREQUENCY 9000000
-    #define IF_LSB 8998300
-    #define IF_USB 9001320
+    #define F_LO_LSB 8998300
+    #define F_LO_USB 9001320
 #endif  
   
 #if (IFOPTION == 1)  //10.695MHz Filter 10M04DS (ex CB TRX "President Jackson")
