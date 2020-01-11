@@ -539,7 +539,7 @@ int smaxold = 0;
 
 
 //Interfrequency options
-#define IFOPTION 0
+#define IFOPTION 4
 
 #if (IFOPTION == 0) //9MHz Filter 9XMF24D (box73.de)
     #define INTERFREQUENCY 9000000
@@ -563,6 +563,12 @@ int smaxold = 0;
     #define INTERFREQUENCY 9830000
     #define F_LO_LSB 9828320
     #define F_LO_USB 9831000
+#endif  
+
+#if (IFOPTION == 4) //Ladderfilter 9.832 MHz high profile xtals "NARVA"
+    #define INTERFREQUENCY 9830000
+    #define F_LO_LSB 9830500
+    #define F_LO_USB 9833500
 #endif  
 
 #if (IFOPTION == 5)     //Ladderfilter 10 MHz high profile xtals
