@@ -7,7 +7,7 @@
 /*                                                               */
 /*  Compiler:         GCC (GNU AVR C-Compiler)                   */
 /*  Autor:            Peter Rachow (DK7IH)                       */
-/*  Letzte Aenderung: 2020-01-04                                 */
+/*  Letzte Aenderung: 2020-01-11                                 */
 ///////////////////////////////////////////////////////////////////
 //8 bit parallel LCD Version
 
@@ -567,8 +567,8 @@ int smaxold = 0;
 
 #if (IFOPTION == 4) //Ladderfilter 9.832 MHz high profile xtals "NARVA"
     #define INTERFREQUENCY 9830000
-    #define F_LO_LSB 9830500
-    #define F_LO_USB 9833500
+    #define F_LO_LSB 9831250
+    #define F_LO_USB 9834660
 #endif  
 
 #if (IFOPTION == 5)     //Ladderfilter 10 MHz high profile xtals
