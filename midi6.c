@@ -543,7 +543,7 @@ int smaxold = 0;
 
 #if (IFOPTION == 0) //9MHz Filter 9XMF24D (box73.de)
     #define INTERFREQUENCY 9000000
-    #define F_LO_LSB 8998300
+    #define F_LO_LSB 8997970
     #define F_LO_USB 9001320
 #endif  
   
