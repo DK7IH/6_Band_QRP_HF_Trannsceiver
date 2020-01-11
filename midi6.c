@@ -387,8 +387,6 @@ int bcolor = BLACK0; //Standard Background Color
 #define RELAY_1 PA1 //green
 #define RELAY_2 PA2 //white
 
-//Radio basics
-#define INTERFREQUENCY 9000000
 
 //S-Meter
 #define SMAX 240
@@ -458,7 +456,6 @@ int get_adc(int);
 //MISC
 int calc_tuningfactor(void);
 void tx_test(void);
-void set_tx_dualtone(int);
 void tune(void);
 void set_dualtone_oscillator(int);
 
@@ -468,7 +465,7 @@ void draw_hor_line(int, int, int, int);
 void draw_vert_line(int, int, int, int);
 
 //Menu
-unsigned long menux(unsigned long, int);
+unsigned long menu0(int, unsigned long, int);
 void print_menu_head(char*, char*, int);
 void print_menu_item(char*, int, int);
 void print_menu_item_list(int, int, int);
@@ -517,7 +514,6 @@ int save_mem_freq(unsigned long, int);
 //Checking
 int is_mem_freq_ok(unsigned long,int);
 
-
   /////////////
  //Variables//
 /////////////
@@ -533,9 +529,50 @@ int smaxold = 0;
 //Freq data
 //LO
 #define MAXMODES 2
+//Radio basics
+//9MXF24D
+/*
+#define INTERFREQUENCY 9000000
 #define F_LO_LSB 8998300
 #define F_LO_USB 9001320
+*/
+
+
+//Interfrequency options
+#define IFOPTION 2
+
+#if (IFOPTION == 0) //9MHz Filter 9XMF24D (box73.de)
+    #define INTERFREQUENCY 9000000
+    #define IF_LSB 8998300
+    #define IF_USB 9001320
+#endif  
+  
+#if (IFOPTION == 1)  //10.695MHz Filter 10M04DS (ex CB TRX "President Jackson")
+    #define INTERFREQUENCY 10695000 //fLSB 10692100, fUSB 10697700
+    #define F_LO_LSB 10691880
+    #define F_LO_USB 10697580
+#endif  
+
+#if (IFOPTION == 2) //10.7MHz Filter 10MXF24D (box73.de)
+    #define INTERFREQUENCY 10700000 
+    #define F_LO_LSB 10697630
+    #define F_LO_USB 10702000
+#endif  
+
+#if (IFOPTION == 3) //Ladderfilter 9.830 MHz low profile xtals
+    #define INTERFREQUENCY 9830000
+    #define F_LO_LSB 9828320
+    #define F_LO_USB 9831000
+#endif  
+
+#if (IFOPTION == 5)     //Ladderfilter 10 MHz high profile xtals
+    #define INTERFREQUENCY 10000000
+    #define F_LO_LSB 9994720
+    #define F_LO_USB 9999840
+#endif  
+
 unsigned long f_lo[] = {F_LO_LSB, F_LO_USB}; //LSB, USB
+
 int sideband = 0;  //Current sideband in use LSB=0, USB=1
 int cur_band;
 
@@ -576,7 +613,7 @@ int smax = 0;
 unsigned long runseconds10s = 0;
 
 //Menu n=items-1
-int menu_items[] =  {5, 1, 3, 3, 3, 1, 3, 3, 1, 2}; 
+int menu_items[] =  {5, 1, 3, 3, 3, 1, 3, 3, 1, 3}; 
 
 //Backlight
 int blight = 128;
@@ -2355,7 +2392,7 @@ void print_menu_item_list(int m, int item, int invert)
 	                           {"MEMORY ", "BAND   ", "LIMITS ", "THRESH ", "       ", "       "}, 
 	                           {"OFF    ", "ON     ", "TXA RXB", "TXB RXA", "       ", "       "},
 	                           {"LO LSB ", "LO USB ", "       ", "       ", "       ", "       "},
-	                           {"B-LIGHT", "TX TEST", "TX TUNE", "       ", "       ", "       "},
+	                           {"B-LIGHT", "TX TEST", "TX TUNE", "TX PRES", "       ", "       "},
 	                           };
     int t1;
     
@@ -2457,7 +2494,7 @@ int navigate_thru_item_list(int m, int maxitems, int curitem)
 	return -1;
 }	
 			
-unsigned long menux(unsigned long f, int c_vfo)
+unsigned long menu0(int mlevel, unsigned long f, int c_vfo)
 {
 	
 	int result = 0;
@@ -2466,255 +2503,281 @@ unsigned long menux(unsigned long f, int c_vfo)
 	///////////
 	// BAND  //
 	///////////
-	while(get_keys());
 	menu = 0;
-	print_menu_head("BAND", "", menu_items[menu]);	//Head outline of menu
-	print_menu_item_list(menu, -1, 0);              //Print item list in full
+	if(mlevel == -1 || mlevel == menu)
+	{
+	    while(get_keys());    
+	    print_menu_head("BAND", "", menu_items[menu]);	//Head outline of menu
+	    print_menu_item_list(menu, -1, 0);              //Print item list in full
 	
-	//Navigate thru item list
-	result = navigate_thru_item_list(menu, menu_items[menu], cur_band);
-	if(result > -1)
-	{
-		return(menu * 10 + result);
-	}
-	else
-	{
-		switch(result)
-		{				
-		    case -3: return -3; //Quit menu         
-		             break;
-		    case -1: break;
-		}
-    }		
+	    //Navigate thru item list
+	    result = navigate_thru_item_list(menu, menu_items[menu], cur_band);
+	    if(result > -1)
+	    {
+		    return(menu * 10 + result);
+	    }
+	    else
+	    {
+		    switch(result)
+		    {				
+		        case -3: return -3; //Quit menu         
+		                 break;
+		        case -1: break;
+		    }
+        }		
+    }
     	
 	////////////////
 	// SIDEBAND  //
 	////////////////
-	while(get_keys());
 	menu = 1;
-	print_menu_head("SIDE-", "BAND", menu_items[menu]);	//Head outline of menu
-	print_menu_item_list(menu, sideband, 0);              //Print item list in full
+	if(mlevel == -1 || mlevel == menu)
+	{
+	    while(get_keys());
+	    print_menu_head("SIDE-", "BAND", menu_items[menu]);	//Head outline of menu
+	    print_menu_item_list(menu, sideband, 0);              //Print item list in full
 	
-	//Navigate thru item list
-	result = navigate_thru_item_list(menu, menu_items[menu], sideband);
-	if(result > -1)
-	{
-		return(menu * 10 + result);
-	}
-	else
-	{
-		switch(result)
-		{				
-		    case -3: return -3; //Quit menu         
-		             set_frequency2(f_lo[sideband]);
-		             break;
-		    case -1: break;
-		}
-    }		
-    
+	    //Navigate thru item list
+	    result = navigate_thru_item_list(menu, menu_items[menu], sideband);
+	    if(result > -1)
+	    {
+		    return(menu * 10 + result);
+	    }
+	    else
+	    {
+		    switch(result)
+		    {				
+		        case -3: return -3; //Quit menu         
+		                 set_frequency2(f_lo[sideband]);
+		                 break;
+		        case -1: break;
+		    }
+        }		
+    }
+        
 	////////////////
 	// VFO FUNCS  //
 	////////////////
-	while(get_keys());
 	menu = 2;
-	print_menu_head("VFO", "", menu_items[menu]);	//Head outline of menu
-	print_menu_item_list(menu, -1, 0);              //Print item list in full
+	if(mlevel == -1 || mlevel == menu)
+	{
+		while(get_keys());
+	    print_menu_head("VFO", "", menu_items[menu]);	//Head outline of menu
+	    print_menu_item_list(menu, -1, 0);              //Print item list in full
 	
-	//Navigate thru item list
-	result = navigate_thru_item_list(menu, menu_items[menu], c_vfo);
-	if(result > -1)
-	{
-		return(menu * 10 + result);
-	}
-	else
-	{
-		switch(result)
-		{				
-		    case -3: return -3; //Quit menu         
-		             break;
-		    case -1: break;
-		}
-    }		
-     
+	    //Navigate thru item list
+	    result = navigate_thru_item_list(menu, menu_items[menu], c_vfo);
+	    if(result > -1)
+	    {
+		    return(menu * 10 + result);
+	    }
+	    else
+	    {
+		    switch(result)
+		    {				
+		        case -3: return -3; //Quit menu         
+		                 break;
+		        case -1: break;
+		    }
+        }		
+    }
+    
     ////////////////
 	//  TONE SET  //
 	////////////////
 	menu = 3;
-	print_menu_head("TONE", "SET", menu_items[menu]);	//Head outline of menu
-	print_menu_item_list(menu, -1, 0);              //Print item list in full
-		
-	//Navigate thru item list
-	result = navigate_thru_item_list(menu, menu_items[menu], curtone);
-	if(result > -1)
+	if(mlevel == -1 || mlevel == menu)
 	{
-		curtone = result;
-		eeprom_write_byte((uint8_t*)140, result);
-		return(menu * 10 + result);
-	}
-	else
-	{
-		switch(result)
-		{	
-		    case -3: return -3; //Quit menu         
-		             break;
-		    case -1: break;
+		while(get_keys());
+		print_menu_head("TONE", "SET", menu_items[menu]);	//Head outline of menu
+		print_menu_item_list(menu, -1, 0);              //Print item list in full
+			
+		//Navigate thru item list
+		result = navigate_thru_item_list(menu, menu_items[menu], curtone);
+		if(result > -1)
+		{
+			curtone = result;
+			eeprom_write_byte((uint8_t*)140, result);
+			return(menu * 10 + result);
 		}
-    }    
-    
+		else
+		{
+			switch(result)
+			{	
+			    case -3: return -3; //Quit menu         
+			             break;
+			    case -1: break;
+			}
+	    }    
+    }
     ////////////////
 	//  AGC  SET  //
 	////////////////
 	menu = 4;
-	print_menu_head("AGC", "SET", menu_items[menu]);	//Head outline of menu
-	print_menu_item_list(menu, -1, 0);              //Print item list in full
-		
-	//Navigate thru item list
-	result = navigate_thru_item_list(menu, menu_items[menu], curagc);
-	if(result > -1)
+	if(mlevel == -1 || mlevel == menu)
 	{
-		curagc = result;
-		eeprom_write_byte((uint8_t*)141, result);
-		return(menu * 10 + result);
-	} 
-	else
-	{
-		switch(result)
-		{	
-		    case -3: return -3; //Quit menu         
-		             break;
-		    case -1: break;
-		}
+		while(get_keys());
+		print_menu_head("AGC", "SET", menu_items[menu]);	//Head outline of menu
+		print_menu_item_list(menu, -1, 0);              //Print item list in full
+			
+		//Navigate thru item list
+		result = navigate_thru_item_list(menu, menu_items[menu], curagc);
+		if(result > -1)
+		{
+			curagc = result;
+			eeprom_write_byte((uint8_t*)141, result);
+			return(menu * 10 + result);
+		} 
+		else
+		{
+			switch(result)
+			{	
+			    case -3: return -3; //Quit menu         
+			             break;
+			    case -1: break;
+			}
+	    }    
     }    
-        
 	////////////////
 	//MEMORY FUNCS//
 	////////////////
 	menu = 5;
-	print_menu_head("MEMO-", "RIES", menu_items[menu]);	//Head outline of menu
-	print_menu_item_list(menu, -1, 0);              //Print item list in full
-		
-	//Navigate thru item list
-	result = navigate_thru_item_list(menu, menu_items[menu], 0);
-	//lcd_putnumber(0, 3, result, -1, 0, 0);
-	if(result > -1)
+	if(mlevel == -1 || mlevel == menu)
 	{
-		return(menu * 10 + result);
-	}
-	else
-	{
-		switch(result)
-		{	
-		    case -3: return -3; //Quit menu         
-		             break;
-		    case -1: break;
+		while(get_keys());
+		print_menu_head("MEMO-", "RIES", menu_items[menu]);	//Head outline of menu
+		print_menu_item_list(menu, -1, 0);              //Print item list in full
+			
+		//Navigate thru item list
+		result = navigate_thru_item_list(menu, menu_items[menu], 0);
+		//lcd_putnumber(0, 3, result, -1, 0, 0);
+		if(result > -1)
+		{
+			return(menu * 10 + result);
 		}
-    }
-		
+		else
+		{
+			switch(result)
+			{	
+			    case -3: return -3; //Quit menu         
+			             break;
+			    case -1: break;
+			}
+		}
+	}	
 	////////////////
 	// SCAN FUNCS //
 	////////////////
-	while(get_keys());
-		
 	menu = 6;
-    print_menu_head("SCAN", "", menu_items[menu]);	//Head outline of menu
-	print_menu_item_list(menu, -1, 0);              //Print item list in full
-	   
-	//Navigate thru item list
-	result = navigate_thru_item_list(menu, menu_items[menu], 0);
-					
-	if(result > -1)
+	if(mlevel == -1 || mlevel == menu)
 	{
-		return(menu * 10 + result);
-	}
-	else
-	{
-		switch(result)
-		{	
-		    case -3: return -3; //Quit menu         
-		             break;
-		    case -1: break;
+		while(get_keys());
+		print_menu_head("SCAN", "", menu_items[menu]);	//Head outline of menu
+		print_menu_item_list(menu, -1, 0);              //Print item list in full
+		   
+		//Navigate thru item list
+		result = navigate_thru_item_list(menu, menu_items[menu], 0);
+						
+		if(result > -1)
+		{
+			return(menu * 10 + result);
 		}
+		else
+		{
+			switch(result)
+			{	
+			    case -3: return -3; //Quit menu         
+			             break;
+			    case -1: break;
+			}
+	    }
     }
     
 	////////////////
 	// SPLIT MODE //
 	////////////////
-	while(get_keys());
-	
 	menu = 7;
-	print_menu_head("SPLIT", "MODE", menu_items[menu]);	//Head outline of menu
-	print_menu_item_list(menu, -1, 0);              //Print item list in full
-	
-    //Navigate thru item list
-	result = navigate_thru_item_list(menu, menu_items[menu], split);
-					
-	if(result > -1)
+	if(mlevel == -1 || mlevel == menu)
 	{
-		return(menu * 10 + result);
-	}
-	else
-	{
-		switch(result)
-		{	
-		    case -3: return -3; //Quit menu         
-		             break;
-		    case -1: break;
+		while(get_keys());
+		print_menu_head("SPLIT", "MODE", menu_items[menu]);	//Head outline of menu
+		print_menu_item_list(menu, -1, 0);              //Print item list in full
+		
+	    //Navigate thru item list
+		result = navigate_thru_item_list(menu, menu_items[menu], split);
+						
+		if(result > -1)
+		{
+			return(menu * 10 + result);
 		}
+		else
+		{
+			switch(result)
+			{	
+			    case -3: return -3; //Quit menu         
+			             break;
+			    case -1: break;
+			}
+	    }
     }
     
     /////////////////
 	// LO SET MODE //
 	/////////////////
-	while(get_keys());
-	
 	menu = 8;
-	print_menu_head("LO", "FREQ", menu_items[menu]);	//Head outline of menu
-	print_menu_item_list(menu, -1, 0);              //Print item list in full
-	   
-	//Navigate thru item list
-	result = navigate_thru_item_list(menu, menu_items[menu], split);
-					
-	if(result > -1)
+	if(mlevel == -1 || mlevel == menu)
 	{
-		return(menu * 10 + result);
-	}
-	else
-	{
-		switch(result)
-		{	
-		    case -3: return -3; //Quit menu         
-		             break;
-		    case -1: break;
+		while(get_keys());
+		print_menu_head("LO", "FREQ", menu_items[menu]);	//Head outline of menu
+		print_menu_item_list(menu, -1, 0);              //Print item list in full
+		   
+		//Navigate thru item list
+		result = navigate_thru_item_list(menu, menu_items[menu], split);
+						
+		if(result > -1)
+		{
+			return(menu * 10 + result);
 		}
+		else
+		{
+			switch(result)
+			{	
+			    case -3: return -3; //Quit menu         
+			             break;
+			    case -1: break;
+			}
+	    }
     }
-
+    
       ///////////////////////////////////////////
 	 // Special Functions: BACKLIGHT, TX TEST //
 	///////////////////////////////////////////
-	while(get_keys());
-	
 	menu = 9;
-	print_menu_head("XTRA", "FUNC", menu_items[menu]);	//Head outline of menu
-	print_menu_item_list(menu, -1, 0);              //Print item list in full
-	   
-	//Navigate thru item list
-	result = navigate_thru_item_list(menu, menu_items[menu], split);
-					
-	if(result > -1)
+	if(mlevel == -1 || mlevel == menu)
 	{
-		return(menu * 10 + result);
-	}
-	else
-	{
-		switch(result)
-		{	
-		    case -3: return -3; //Quit menu         
-		             break;
-		    case -1: break;
+		while(get_keys());
+		print_menu_head("XTRA", "FUNC", menu_items[menu]);	//Head outline of menu
+		print_menu_item_list(menu, -1, 0);              //Print item list in full
+		   
+		//Navigate thru item list
+		result = navigate_thru_item_list(menu, menu_items[menu], split);
+						
+		if(result > -1)
+		{
+			return(menu * 10 + result);
 		}
-    }
-    
-	return -2; //Nothing to do in main()
+		else
+		{
+			switch(result)
+			{	
+			    case -3: return -3; //Quit menu         
+			             break;
+			    case -1: break;
+			}
+	    }
+	    return -2; //Nothing to do in main()
+	}    
+	return -2;
 }
 
    //////////////////////////
@@ -3156,6 +3219,7 @@ int main(void)
 	unsigned long runseconds10msg = 0;   //Ms for holding message displayed
 	unsigned long runseconds10volts = 0; //Ms for volatge check
 	
+	int sval = 0;
 	int cur_vfo = 0, alt_vfo = 1;
 	
 	unsigned long freq_temp0 = 0;      
@@ -3341,7 +3405,7 @@ int main(void)
     for(t1 = 0; t1 < 2; t1++)
     {
 		f_lo[t1] = load_frequency(t1 + 128);
-		if((f_lo[t1] < 8997000) || (f_lo[t1] > 9003000))
+		if((f_lo[t1] < F_LO_LSB - 2000) || (f_lo[t1] > F_LO_USB + 2000))
 		{
 			if(!t1)
 			{
@@ -3407,7 +3471,7 @@ int main(void)
 			
         switch(key)
 		{
-		    case 1:	rval = menux(f_vfo[cur_vfo], cur_vfo);
+		    case 1:	rval = menu0(-1, f_vfo[cur_vfo], cur_vfo);
 		            key = 0;
 			        
 			        //Band change
@@ -3607,6 +3671,8 @@ int main(void)
 					             break;                   
 					    case 92: tune();         
 					             break;
+					    case 93: tx_preset_adjust();
+					             break;         
 				    }
 				       
 				    lcd_cls(bcolor);    
@@ -3624,17 +3690,27 @@ int main(void)
 			        runseconds10msg = runseconds10;
 			        break;
 			        
-			case 3: tx_preset_adjust();
-	                /*		
-			        tx_test();
-					set_frequency1(f_vfo[cur_vfo]);
-					show_frequency1(f_vfo[cur_vfo], 1, bcolor);
-					set_band(cur_band);
-					txrx = 0;
-					lcd_cls(bcolor);    
+			case 3: while(get_keys());
+                    rval = menu0(9, f_vfo[cur_vfo], cur_vfo);
+                    switch(rval)
+				    {
+				        case 90: adjustbacklight();
+					             break;          
+					    
+					    case 91: tx_test();
+					             set_frequency1(f_vfo[cur_vfo]);
+					             show_frequency1(f_vfo[cur_vfo], 1, bcolor);
+					             set_band(cur_band);
+					             txrx = 0;
+					             break;                   
+					    case 92: tune();         
+					             break;
+					    case 93: tx_preset_adjust();
+					             break;   
+			        }
+	                lcd_cls(bcolor);    
 			        show_all_data(f_vfo[cur_vfo], f_vfo[alt_vfo], 1, sideband, 0, cur_vfo, 0, 0, 0, 0, last_memplace, txrx);
 			        show_mem_freq(freq_temp1, bcolor);
-			        */   
 			        while(get_keys());
 			        break;      
 		}	            
@@ -3644,8 +3720,8 @@ int main(void)
 		if(runseconds10 > runseconds10s)
 		{
 			if(!txrx)
-		 	{
-				smeter(get_s_value(), bcolor); //S-Meter * 1
+		 	{   sval = get_s_value();
+				smeter((sval >> 1) + (sval >> 2), bcolor); //S-Meter * 1.5
 		 	}
 		 	else
 		 	{
@@ -3667,7 +3743,7 @@ int main(void)
 		{
 			show_temp(bcolor);
 		    show_msg("", bcolor);
-		    show_msg("DK7IH 2020-01-03", bcolor);
+		    show_msg("DK7IH 2020-01-06", bcolor);
 		    runseconds10msg = runseconds10;
 		}
 		
