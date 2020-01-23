@@ -69,16 +69,19 @@
 
 //Tone
 //PG3, PG4
+//AGC
+//PG0, PG1
+
   /////////////
  //I N P U T//
 /////////////
 
 //ADC
-//PA0/ADC0: Keys           yellow
-//PA1/ADC1: PWR-Meter      violet 
-//PA2/ADC2: PA Temperature brown
-//PA3/ADC3: Voltage        green
-//PA4/ADC4: S-Meter		   blue
+//PF0/ADC0: Keys           yellow
+//PF1/ADC1: PWR-Meter      violet 
+//PF2/ADC2: PA Temperature brown
+//PF3/ADC3: Voltage        green
+//PF4/ADC4: S-Meter		   blue
 
 //PG2 PTT in
 
@@ -529,22 +532,16 @@ int smaxold = 0;
 //Freq data
 //LO
 #define MAXMODES 2
-//Radio basics
-//9MXF24D
-/*
-#define INTERFREQUENCY 9000000
-#define F_LO_LSB 8998300
-#define F_LO_USB 9001320
-*/
 
+//Radio basics
 
 //Interfrequency options
-#define IFOPTION 4
+#define IFOPTION 0
 
 #if (IFOPTION == 0) //9MHz Filter 9XMF24D (box73.de)
     #define INTERFREQUENCY 9000000
-    #define F_LO_LSB 8997970
-    #define F_LO_USB 9001320
+    #define F_LO_LSB 8998130
+    #define F_LO_USB 9001420
 #endif  
   
 #if (IFOPTION == 1)  //10.695MHz Filter 10M04DS (ex CB TRX "President Jackson")
@@ -567,8 +564,8 @@ int smaxold = 0;
 
 #if (IFOPTION == 4) //Ladderfilter 9.832 MHz high profile xtals "NARVA"
     #define INTERFREQUENCY 9830000
-    #define F_LO_LSB 9831250
-    #define F_LO_USB 9834660
+    #define F_LO_LSB 9830960
+    #define F_LO_USB 9834930
 #endif  
 
 #if (IFOPTION == 5)     //Ladderfilter 10 MHz high profile xtals
@@ -1551,6 +1548,8 @@ void tx_preset_adjust(void)
 		tmpstr[t1] = 0;
 	}	
 	
+	PORTA |= 8; //TX on
+  
 	show_msg("      TX Preset", bcolor);
 	int2asc(v1, -1, tmpstr, 8);
     show_msg(tmpstr, bcolor);
@@ -1589,6 +1588,8 @@ void tx_preset_adjust(void)
 		}	
 		key = get_keys();
 	}	
+	
+	PORTA &= ~(8); 		//TX off
 	
 	if(key == 2)
 	{
@@ -3784,3 +3785,4 @@ int main(void)
 
 	return 0;
 }
+
