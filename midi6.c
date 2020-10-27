@@ -538,9 +538,6 @@ int is_mem_freq_ok(unsigned long,int);
 //Seconds counting
 unsigned long runseconds10 = 0; 
 
-//Display buffer
-char *oldbuf = "         ";
-
 //S-Meter temporary max. value
 int smaxold = 0;
 
@@ -603,9 +600,9 @@ int split = 0; //0=off, 1=TXA RXB, 2=TXB RXA
 
 //Data for 6 bands
 int std_sideband [] = {0, 0, 0, 1, 1, 1};                                    //Standard sideband for each rf band
-unsigned long c_freq[] =  {1850000, 3650000, 7120000, 14180000, 21290000, 28500000};  //Center frequency
-unsigned long band_f0[] = {1840000, 3490000, 6990000, 13990000, 20990000, 27990000};  //Edge frequency I
-unsigned long band_f1[] = {2010000, 3810000, 7210000, 14360000, 21460000, 29710000};  //Edge frequency II
+unsigned long c_freq[] =  {1950000, 3650000, 7120000, 14180000, 21290000, 28500000};  //Center frequency
+unsigned long band_f0[] = {1850000, 3500000, 7000000, 14000000, 21000000, 28000000};  //Edge frequency I
+unsigned long band_f1[] = {2000000, 3800000, 7200000, 14350000, 21450000, 29700000};  //Edge frequency II
 
 //Frequency memories
 #define MAXMEM 15
@@ -932,7 +929,17 @@ void show_frequency1(unsigned long f, int refresh, int bc)
 	char *buf;
 	int t1, t2, x;
 	int x0 = 7, y0 = 8; 
-		
+	int fc = 0;
+	
+	if(is_mem_freq_ok(f, cur_band))
+	{
+		fc = YELLOW;
+	}
+	else	
+	{
+		fc = LIGHT_RED;
+	}	
+	
 	if(f < 10000000)
 	{
 		x0 = 8;
@@ -975,22 +982,11 @@ void show_frequency1(unsigned long f, int refresh, int bc)
 	//Display buffer (but only the letters that have changed)
 	for(t1 = 0; *(buf + t1); t1++)
 	{
-		if((*(oldbuf + t1) != *(buf + t1)) || refresh)
-		{
-		    lcd_putchar(calcx(x0 + t1 * 2), calcy(y0), *(buf + t1), 2, YELLOW, bc);
-		}   
+		lcd_putchar(calcx(x0 + t1 * 2), calcy(y0), *(buf + t1), 2, fc, bc);  
 	}	
 	
-	lcd_putstring(calcx(22), calcy(8), "kHz", 1, YELLOW, bc);
-	
-	//Copy current buffer to storing variable
-	t1 = 0;
-	while(*(buf + t1))
-	{
-		*(oldbuf + t1) = *(buf + t1);
-		t1++;
-	}	
-	
+	lcd_putstring(calcx(22), calcy(8), "kHz", 1, fc, bc);
+		
 	free(buf);
 }
 
@@ -3674,21 +3670,21 @@ int main(void)
 			        break;
 			        
 			case 3: while(get_keys());
-                    rval = menu1(9, f_vfo[cur_vfo], cur_vfo, cur_band);
+                    rval = menu1(10, f_vfo[cur_vfo], cur_vfo, cur_band);
                     switch(rval)
 				    {
-				        case 90: adjustbacklight();
+				        case 100: adjustbacklight();
 					             break;          
 					    
-					    case 91: tx_test();
+					    case 101: tx_test();
 					             set_frequency1(f_vfo[cur_vfo]);
 					             show_frequency1(f_vfo[cur_vfo], 1, bcolor);
 					             set_band(cur_band);
 					             txrx = 0;
 					             break;                   
-					    case 92: tune();         
+					    case 102: tune();         
 					             break;
-					    case 93: tx_preset_adjust();
+					    case 103: tx_preset_adjust();
 					             break;   
 			        }
 	                lcd_cls(bcolor);    
