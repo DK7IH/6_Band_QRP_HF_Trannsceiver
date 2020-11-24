@@ -1,5 +1,4 @@
 ///////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////
 /*               6-Band QRP HF Transceiver "Midi6"               */ 
 /*  ************************************************************ */
 /*  Mikrocontroller:  ATMEL AVR ATmega128, 16 MHz                */
@@ -22,6 +21,15 @@
 // 1=PTT
 // 2=MIC
 // 3,4=GND
+
+// UART 3 pole connector
+//             ----------- 
+// <AAA|BBB|CCC
+//             ----------- A TX out|B  RX in  | C GND
+//
+// MUC: grey: RX, green: TX
+
+//Line orange, white: GND, blue rx, yellow TX
 
   ///////////////////////
  //       PORTS       //
@@ -121,9 +129,9 @@
 // 424:427: Freq VFO A 10m memplace=106
 // 428:431: Freq VFO B 10m memplace=107
 
-//Scan edges
-// 432:435: scanfreq[0] on memplace=108  
-// 436:439: scanfreq[1] on memplace=109  
+
+// 432:435: Reserved
+// 436:439: Reserved
 
 // 440: Last band used
 // 441: Last VFO in use
@@ -145,20 +153,37 @@
 //512:515: f.Lo.LSB memplace=128
 //516:519: f.Lo.USB memplace=129
 
+//Scan edge frquencies
+/*
+550	553	Scanfreq0: 160
+554	557	Scanfreq1: 160
+558	561	Scanfreq0: 80
+562	565	Scanfreq1: 80
+566	569	Scanfreq0: 40
+570	573	Scanfreq1: 40
+574	577	Scanfreq0: 20
+578	581	Scanfreq1: 20
+582	585	Scanfreq0: 15
+586	589	Scanfreq1: 15
+590	593	Scanfreq0: 10
+594	597	Scanfreq1: 10
+*/
+
 #include <inttypes.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
 #include <avr/pgmspace.h>
-
 #include <avr/io.h>
 #include <avr/interrupt.h>
 #include <avr/sleep.h>
 #include <util/delay.h>
 #include <avr/eeprom.h>
 
-#define SCLOCK 16
+#define FOSC 16000000// Clock Speed
+#define BAUD 2400
+#define UARTBAUDSET FOSC/16/BAUD-1
 
   ///////////////////
  //  LCD-Display  //
@@ -518,19 +543,28 @@ int load_tx_preset(int);
 //EEPROM
 //Loading
 int load_last_band(void);
-unsigned long load_frequency(int);
+unsigned long load_frequency0(int);
+unsigned long load_frequency1(int);
 int load_last_mem(void);
 int load_last_vfo(void);
 unsigned long recall_mem_freq(int);
 //Storing
 void store_last_band(int);
-void store_frequency(unsigned long, int);
+void store_frequency0(unsigned long, int);
+void store_frequency1(unsigned long, int);
 void store_last_vfo(int);
 void store_last_mem(int);
 int save_mem_freq(unsigned long, int);
 
+void rcv_mem_frequencies(void);
+
 //Checking
 int is_mem_freq_ok(unsigned long,int);
+
+//UART
+void usart_init(int);
+int usart_receive(void);
+void usart_transmit(unsigned char data);
 
   /////////////
  //Variables//
@@ -601,7 +635,7 @@ int split = 0; //0=off, 1=TXA RXB, 2=TXB RXA
 //Data for 6 bands
 int std_sideband [] = {0, 0, 0, 1, 1, 1};                                    //Standard sideband for each rf band
 unsigned long c_freq[] =  {1950000, 3650000, 7120000, 14180000, 21290000, 28500000};  //Center frequency
-unsigned long band_f0[] = {1850000, 3500000, 7000000, 14000000, 21000000, 28000000};  //Edge frequency I
+unsigned long band_f0[] = {1810000, 3500000, 7000000, 14000000, 21000000, 28000000};  //Edge frequency I
 unsigned long band_f1[] = {2000000, 3800000, 7200000, 14350000, 21450000, 29700000};  //Edge frequency II
 
 //Frequency memories
@@ -630,7 +664,7 @@ int smax = 0;
 unsigned long runseconds10s = 0;
 
 //Menu n=items-1
-int menu_items[MENUITEMS] =  {5, 1, 3, 1, 3, 3, 1, 3, 3, 1, 3}; 
+int menu_items[MENUITEMS] =  {5, 1, 3, 1, 3, 3, 1, 3, 2, 1, 4}; 
 
 //Backlight
 int blight = 128;
@@ -950,7 +984,7 @@ void show_frequency1(unsigned long f, int refresh, int bc)
 		for(x = 80; x < LCD_WIDTH; x++)
 		{
 			lcd_set_xy(x, calcy(y0));
-			for(t2 = 0; t2 < FONTHEIGHT * 2 + 12; t2++)
+			for(t2 = 0; t2 < FONTHEIGHT * 2 + 2; t2++)
 			{
 				lcd_draw_pixel(bc);
 			}	
@@ -997,12 +1031,12 @@ void show_frequency2(int x, int y, unsigned long f, int bc, int x10, int digits)
 		
 	if(!f)
 	{
-		lcd_putstring(calcx(x), calcy(y), "-------", 1, fcolor, bc);
+		lcd_putstring(calcx(x), calcy(y) - 1, "-------", 1, fcolor, bc);
 	}
 	else
 	{	
-        lcd_putstring(calcx(x), calcy(y), "       ", 1, fcolor, bc);
-	    lcd_putnumber(calcx(x), calcy(y), f / x10, digits, 1, fcolor, bc);
+        lcd_putstring(calcx(x), calcy(y) - 1, "       ", 1, fcolor, bc);
+	    lcd_putnumber(calcx(x), calcy(y) - 1, f / x10, digits, 1, fcolor, bc);
 	}    
 }	
 
@@ -1011,7 +1045,7 @@ void show_band(int b)
 	int xpos = 0, ypos = 8;
 	char *bnd[] = {"160m", "80m ", "40m ", "20m ", "15m ", "10m"};
 	int fc[] = {LIGHT_GREEN, LIGHT_BLUE, LIGHT_BROWN, YELLOW, LIGHT_GRAY, LIGHT_VIOLET};
-	lcd_putstring(calcx(xpos), calcy(ypos), bnd[b], 1, fc[b], bcolor);	
+	lcd_putstring(calcx(xpos), calcy(ypos)- 5, bnd[b], 1, fc[b], bcolor);	
 }	
 
 //VFO
@@ -1157,8 +1191,8 @@ void show_temp(int bc)
     //Display value
     //int2asc(get_adc(2), -1, buf, 6); //TEST
     int2asc(adc_t, 1, buf, 6);
-    lcd_putstring(calcx(xpos), calcy(ypos), buf, 1, fc, bc);
-	lcd_putchar(calcx(xpos + strlen(buf)), calcy(ypos), 0x80, 1, fc, bc);
+    lcd_putstring(calcx(xpos), calcy(ypos) - 1, buf, 1, fc, bc);
+	lcd_putchar(calcx(xpos + strlen(buf)), calcy(ypos) - 1, 0x80, 1, fc, bc);
 	
 	//Free mem
 	free(buf);
@@ -1170,7 +1204,7 @@ void show_agc(int agc, int bc)
 	int xpos = 6, ypos = 3;
 	lcd_putstring(calcx(xpos), calcy(ypos), "AGC  ", 1, GRAY, DARK_BLUE2);				
 	char *agcstr[] = {"FAST ", "NORM ", "SLOW ", "XSLOW"}; 
-	lcd_putstring(calcx(xpos), calcy(ypos + 1), agcstr[agc], 1, GREEN, DARK_BLUE2);			
+	lcd_putstring(calcx(xpos), calcy(ypos + 1) - 1, agcstr[agc], 1, GREEN, DARK_BLUE2);			
 }
 
 //Tone pitch
@@ -1179,7 +1213,7 @@ void show_tone(int tone, int bc)
 	int xpos = 0, ypos = 3;
 	lcd_putstring(calcx(xpos), calcy(ypos), "TONE ", 1, GRAY, DARK_BLUE2);				
 	char *tstr[] = {"HIGH", "NORM", "LOW ", "XLOW"};
-	lcd_putstring(calcx(xpos), calcy(ypos + 1), tstr[tone], 1, RED, DARK_BLUE2);				
+	lcd_putstring(calcx(xpos), calcy(ypos + 1) - 1, tstr[tone], 1, RED, DARK_BLUE2);				
 }
 
 //Tone pitch
@@ -1188,7 +1222,7 @@ void show_att(int att, int bc)
 	int xpos = 12, ypos = 3;
 	lcd_putstring(calcx(xpos), calcy(ypos), "ATT ", 1, GRAY, DARK_BLUE2);				
 	char *attstr[] = {"OFF ", "ON  "}; 
-	lcd_putstring(calcx(xpos), calcy(ypos + 1), attstr[att], 1, GREEN, DARK_BLUE2);			
+	lcd_putstring(calcx(xpos), calcy(ypos + 1) - 1, attstr[att], 1, GREEN, DARK_BLUE2);			
 }
 
 
@@ -1198,7 +1232,7 @@ void show_txrx(int tx)
 	int x = 22, y = 12;
 	if(tx)
 	{
-		lcd_putstring(calcx(x), calcy(y - 1), " TX ", 1, LIGHT_RED, DARK_GRAY);
+		lcd_putstring(calcx(x), calcy(y - 1), " TX ", 1, LIGHT_RED, WHITE);
 		lcd_putstring(calcx(x), calcy(y), " RX ", 1, DARK_GRAY, BLACK0);
 	}
 	else
@@ -1726,27 +1760,15 @@ int get_keys(void)
 //Check PTT Pin PG2
 int get_ptt(void)
 {
-	if(!(PING & (0x04)))
+	if(!(PING & (1 << PG2)))
 	{ 
-		if(!txrx)
-		{
-			txrx = 1;
-			show_txrx(txrx);
-            draw_meter_scale(1, bcolor);				
-		}
-		PORTA |= 8; //TX on
-	}
-	else
-	{	
-		if(txrx)
-		{
-			txrx = 0;
-			show_txrx(txrx);
-			draw_meter_scale(0, bcolor);
-		}
-		PORTA &= ~(8); 		//TX off
+		return 1;
 	}	
-	return txrx;
+	else
+	{
+		return 0;
+	}	
+	
 }		
 
 //Determine s-value
@@ -2082,7 +2104,7 @@ void set_lo_freq(int sb)
 	{
 		f_lo[sb] = f; //Confirm
 		
-		store_frequency(f, 128 + sb); //Save frequency to memplace 128 (LSB) or 129 (USB)
+		store_frequency1(f, 128 + sb); //Save frequency to memplace 128 (LSB) or 129 (USB)
 	}	
 	else
 	{
@@ -2094,13 +2116,21 @@ void set_lo_freq(int sb)
   /////////////////////////
  //   E  E  P  R  O  M  //
 /////////////////////////
-void store_frequency(unsigned long f, int mem)
+//Store MEM Frequency
+void store_frequency0(unsigned long f, int mem)
+{
+    int start_adr = cur_band * 64 + mem * 4;
+    
+    store_frequency1(f, start_adr);
+	
+}
+
+//Store any other frequency by start byte address
+void store_frequency1(unsigned long f, int start_adr)
 {
     unsigned long hiword, loword;
     unsigned char hmsb, lmsb, hlsb, llsb;
 	
-    int start_adr = cur_band * 6 + mem * 4;
-    
 	cli();
     hiword = f >> 16;
     loword = f - (hiword << 16);
@@ -2126,12 +2156,19 @@ void store_frequency(unsigned long f, int mem)
 }
 
 //Load a frequency from memory by memplace
-unsigned long load_frequency(int mem)
+unsigned long load_frequency0(int mem)
 {
-    unsigned long rf;
-    unsigned char hmsb, lmsb, hlsb, llsb;
-    int start_adr = cur_band * 6 + mem * 4;
+    int start_adr = cur_band * 64 + mem * 4;
 		
+    return load_frequency1(start_adr);
+    //rf = (unsigned long) (hmsb << 24) + (unsigned long) (hlsb << 16) + (unsigned long) (lmsb << 8) + llsb;
+}
+
+//Load any other frequency by start byte address
+unsigned long load_frequency1(int start_adr)
+{
+    unsigned char hmsb, lmsb, hlsb, llsb;
+    		
     cli();
     hmsb = eeprom_read_byte((uint8_t*)start_adr);
     hlsb = eeprom_read_byte((uint8_t*)start_adr + 1);
@@ -2139,10 +2176,8 @@ unsigned long load_frequency(int mem)
     llsb = eeprom_read_byte((uint8_t*)start_adr + 3);
 	sei();
 	
-    rf = (unsigned long) 16777216 * hmsb + (unsigned long) 65536 * hlsb + (unsigned int) 256 * lmsb + llsb;
+    return (unsigned long) 16777216 * hmsb + (unsigned long) 65536 * hlsb + (unsigned int) 256 * lmsb + llsb;
     //rf = (unsigned long) (hmsb << 24) + (unsigned long) (hlsb << 16) + (unsigned long) (lmsb << 8) + llsb;
-		
-	return rf;
 }
 
 //Load las memory used
@@ -2150,7 +2185,6 @@ int load_last_mem(void)
 {
 	return eeprom_read_byte((uint8_t*)442);
 }
-
 
 //Check if freq is in 20m-band
 int is_mem_freq_ok(unsigned long f, int cband)
@@ -2164,8 +2198,53 @@ int is_mem_freq_ok(unsigned long f, int cband)
 	{
 	    return 0;
 	}		
-	
 }	
+
+//Load 6 by 16 mem frequencies via uasrt0
+void rcv_mem_frequencies(void)
+{
+	int c = 0, r, t1;
+	int key;
+	char *sbuf;
+	char dbuf[384];
+	int maxbytes = 384;
+	
+	sbuf = malloc(32);
+	
+	while(get_keys());
+	
+	//Empty RX buffer
+	r = usart_receive();
+	while(r > -1)
+	{
+		r = usart_receive();
+	}
+	show_msg("Ready.", bcolor);
+		
+	while(c < maxbytes && !key)
+	{
+		r = usart_receive();
+		if(r > -1)
+		{
+			dbuf[c++] = r;
+		}
+		//key = get_keys();
+	}
+	
+	int2asc(c, -1, sbuf, 8);
+	strcat(sbuf, " Bytes received.");
+	show_msg(sbuf, bcolor);
+	free(sbuf);
+	_delay_ms(1000);
+		
+	//Store data in EEPROM	
+	for(t1 = 0; t1 < maxbytes; t1++)
+	{
+	    eeprom_write_byte((uint8_t*)t1, dbuf[t1]);
+	}    
+	show_msg("Data stored.", bcolor);
+}			
+	
 
 //Store last BAND used
 void store_last_band(int bandnum)
@@ -2244,11 +2323,11 @@ unsigned long recall_mem_freq(int mem_addr)
 	lcd_putstring(calcx(0), calcy(3), "RECALL",  1, fcolor, bcolor);
 	
 	//Load initial freq
-	if(is_mem_freq_ok(load_frequency(mem_addr), cur_band))
+	if(is_mem_freq_ok(load_frequency0(mem_addr), cur_band))
 	{
 		show_mem_number(mem_addr);
-	    set_frequency1(load_frequency(mem_addr));
-	    show_frequency1(load_frequency(mem_addr), 1, bcolor);
+	    set_frequency1(load_frequency0(mem_addr));
+	    show_frequency1(load_frequency0(mem_addr), 1, bcolor);
 	}  
 	else  
 	{
@@ -2273,10 +2352,10 @@ unsigned long recall_mem_freq(int mem_addr)
 			tuningknob = 0;
 			
 			show_mem_number(mem_addr);
-			if(is_mem_freq_ok(load_frequency(mem_addr), cur_band))
+			if(is_mem_freq_ok(load_frequency0(mem_addr), cur_band))
 			{
-			    set_frequency1(load_frequency(mem_addr));
-			    show_frequency1(load_frequency(mem_addr), 1, bcolor);
+			    set_frequency1(load_frequency0(mem_addr));
+			    show_frequency1(load_frequency0(mem_addr), 1, bcolor);
 			}    
 			else
 			{
@@ -2298,10 +2377,10 @@ unsigned long recall_mem_freq(int mem_addr)
 			tuningknob = 0;
 			
 			show_mem_number(mem_addr);
-			if(is_mem_freq_ok(load_frequency(mem_addr), cur_band))
+			if(is_mem_freq_ok(load_frequency0(mem_addr), cur_band))
 			{
-			    set_frequency1(load_frequency(mem_addr));
-			    show_frequency1(load_frequency(mem_addr), 1, bcolor); 
+			    set_frequency1(load_frequency0(mem_addr));
+			    show_frequency1(load_frequency0(mem_addr), 1, bcolor); 
             }    
             else
 			{
@@ -2314,10 +2393,10 @@ unsigned long recall_mem_freq(int mem_addr)
 	            
 	switch(key)
 	{
-	    case 2: if(is_mem_freq_ok(load_frequency(mem_addr), cur_band))
+	    case 2: if(is_mem_freq_ok(load_frequency0(mem_addr), cur_band))
 	            {
 	                store_last_mem(mem_addr);
-	                return(load_frequency(mem_addr) + ((unsigned long)(mem_addr & 0x0F) << 28));
+	                return(load_frequency0(mem_addr) + ((unsigned long)(mem_addr & 0x0F) << 28));
 	            }    
 				break;
 	}	
@@ -2340,9 +2419,9 @@ int save_mem_freq(unsigned long f, int mem)
 	
 	//Load initial mem
 	show_mem_number(mem_addr);
-	if(is_mem_freq_ok(load_frequency(mem_addr), cur_band))
+	if(is_mem_freq_ok(load_frequency0(mem_addr), cur_band))
 	{
-	    set_frequency1(load_frequency(mem_addr));
+	    set_frequency1(load_frequency0(mem_addr));
 	}    
 	show_frequency1(f, 1, bcolor);
 			
@@ -2363,7 +2442,7 @@ int save_mem_freq(unsigned long f, int mem)
 			tuningknob = 0;
 			
 			show_mem_number(mem_addr);
-			mem_freq = load_frequency(mem_addr);
+			mem_freq = load_frequency0(mem_addr);
 			if(is_mem_freq_ok(mem_freq, cur_band))
 			{
 				show_mem_freq(mem_freq, bcolor);
@@ -2390,7 +2469,7 @@ int save_mem_freq(unsigned long f, int mem)
 			tuningknob = 0;
 			
 			show_mem_number(mem_addr);
-			mem_freq = load_frequency(mem_addr);
+			mem_freq = load_frequency0(mem_addr);
 			if(is_mem_freq_ok(mem_freq, cur_band))
 			{
 				show_mem_freq(mem_freq, bcolor);
@@ -2409,7 +2488,7 @@ int save_mem_freq(unsigned long f, int mem)
 	switch(key)
 	{
 	    case 2:     store_last_mem(mem_addr);
-	                store_frequency(f, mem_addr);
+	                store_frequency0(f, mem_addr);
 	                return mem_addr;
 	            	break;
 	}	
@@ -2456,9 +2535,9 @@ void print_menu_item(int m, int i, int invert)
 		                                {"FAST   ", "NORM   ", "SLOW   ", "XSLOW  ", "       ", "       "}, 
 	                                    {"STORE  ", "RECALL ", "       ", "       ", "       ", "       "},
 	                                    {"MEMORY ", "BAND   ", "LIMITS ", "THRESH ", "       ", "       "}, 
-	                                    {"OFF    ", "ON     ", "TXA RXB", "TXB RXA", "       ", "       "},
+	                                    {"TXA RXB", "TXB RXA", "OFF    ", "       ", "       ", "       "},
 	                                    {"LO LSB ", "LO USB ", "       ", "       ", "       ", "       "},
-	                                    {"B-LIGHT", "TX TEST", "TX TUNE", "TX PRES", "       ", "       "}};
+	                                    {"B-LIGHT", "TX TEST", "TX TUNE", "TX PRES", "GET MEM", "       "}};
 	int xpos1 = 12;
 	int fc, bc;
 	
@@ -2683,7 +2762,7 @@ long menu0(long f, int c_vfo, int c_band)
 			
 unsigned long menu1(int menu, unsigned long f, int c_vfo, int c_band)
 {
-	//                              0       1       2      3       4       5      6       7        8       9        10
+	//                              0       1       2      3       4       5      6      7        8        9        10
 	char menu_str[MENUITEMS][10] = {"BAND", "SIDE", "VFO", "ATT ", "TONE", "AGC", "MEM", "SCAN", "SPLIT", "LO ADJ", "XTRA"};
 	
 	int result = 0;
@@ -2718,13 +2797,18 @@ unsigned long menu1(int menu, unsigned long f, int c_vfo, int c_band)
 	
 	//lcd_putnumber(0, 0, result, -1, 1, LIGHT_RED, bcolor);
 	//_delay_ms(1000);
-		
+			
 	if(result > -1)
 	{
 	    return(menu * 10 + result);
 	}
 	else
 	{
+		//Restore old settings
+	    set_frequency2(f_lo[sideband]);
+	    set_att(curatt);
+	    set_frequency1(f_vfo[c_vfo]);
+	    
 	    switch(result)
 		{				
 		    case -3: return -3; //Quit menu         
@@ -2867,15 +2951,13 @@ void tune(void)
 unsigned long scan(int mode)
 {
     int t1 = 0;
-    unsigned long f0, f1, df, runsecsold = 0;
+    unsigned long f, df, runsecsold = 0;
     int key = 0;
     int sval;
-    int fcolor = WHITE;
-    
+        
     int scan_skip[MAXMEM];
     
     lcd_cls(bcolor);
-    lcd_putstring(0, 0, "Scanning...", 1, fcolor, bcolor);
     
     for(t1 = 0; t1 < MAXMEM; t1++)
     {
@@ -2887,18 +2969,18 @@ unsigned long scan(int mode)
     
     if(!mode)
     {
+		show_msg("Scanning Memories...", bcolor);
 		key = 0;
         while(!key) //Scan memories
 	    {
 		    t1 = 0;
 		    while(t1 < MAXMEM && !key)
 		    {
-			    f0 = load_frequency(t1);
-				if(is_mem_freq_ok(f0, cur_band) && !scan_skip[t1])
+			    f = load_frequency0(t1);
+				if(is_mem_freq_ok(f, cur_band) && !scan_skip[t1])
 				{
-					set_frequency1(f0);
-					set_frequency2(f_lo[sideband]);
-				    show_frequency1(f0, 1, bcolor);
+					set_frequency1(f);
+				    show_frequency1(f, 1, bcolor);
 				    show_mem_number(t1);
 				    				    
 				    sval = get_s_value(); //ADC voltage on ADC2 SVAL
@@ -2915,10 +2997,10 @@ unsigned long scan(int mode)
 		 	            sval = get_s_value();
 		 	            smeter(sval, bcolor); //S-Meter
 		 	            
-		 	            if(PIND & 0x02) //PTT active
+		 	            if(get_ptt()) //PTT active
 			            {
 				            key = 2;
-				            while(PIND & 0x02);
+				            while(get_ptt());
 			            }
 		 	        }
 					
@@ -2928,10 +3010,10 @@ unsigned long scan(int mode)
 						key = get_keys();
 						sval = get_s_value();
 						smeter(sval, bcolor); //S-Meter
-						if(PIND & 0x02) //PTT active
+						if(get_ptt()) //PTT active
 			            {
 				            key = 2;
-				            while(PIND & 0x02);
+				            while(get_ptt());
 			            }
 					}	
 			    } 
@@ -2967,26 +3049,43 @@ unsigned long scan(int mode)
 		}	
 	}
 	else  //Scan band
-	{			
+	{	
+		show_msg("Scanning Band...", bcolor);				
 	    while(!key) 
 	    {
-	        f0 = scanfreq[0];
-			f1 = scanfreq[1];
-			show_frequency1(f0, 1, bcolor);
-		    
+			//Load edge frequencies
+			for(t1 = 0; t1 < 2; t1++)
+			{
+	            scanfreq[t1] = load_frequency1(cur_band * 2 + 550 + t1 * 4);
+				if(!is_mem_freq_ok(scanfreq[t1], cur_band))
+				{
+					if(!t1)
+					{
+					    scanfreq[t1] = band_f0[cur_band];
+					}
+					else    
+					{
+					    scanfreq[t1] = band_f1[cur_band];
+					}
+				}	
+			}					
+								
 		    df = 0;
+		    set_frequency1(scanfreq[0] + df);
+		    show_frequency1(scanfreq[0], 1, bcolor);
 		    
-		    while(f0 + df <= f1 && !key)
+		    while((scanfreq[0] + df <= scanfreq[1]) && !key)
 		    {
-		        set_frequency1(f0 + df);
-		        set_frequency2(f_lo[sideband]);
-			    show_frequency1(f0 + df, 0, bcolor);
-			    df += 100;
-			    
+				df += 100;
+		        set_frequency1(scanfreq[0] + df);
+		        show_frequency1(scanfreq[0] + df, 0, bcolor);
+						    
 			    sval = get_s_value(); //ADC voltage on ADC2 SVAL
 			    smeter(sval, bcolor); //S-Meter
 				
-		 	    while(sval > s_threshold && !get_keys())
+				key = get_keys();
+				
+		 	    while((sval > s_threshold) && !key)
 				{
 					runsecsold = runseconds10;
 		 	        key = get_keys();
@@ -2997,12 +3096,11 @@ unsigned long scan(int mode)
 		 	        sval = get_s_value();
 		 	        smeter(sval, bcolor); //S-Meter
 		 	    }
-			    key = get_keys();
-			    
-			    if(PIND & 0x02) //PTT active
+		 	    
+			    if(get_ptt()) //PTT active
 			    {
 				    key = 2;
-				    while(PIND & 0x02);
+				    while(get_ptt());
 			    }
 			}
 		}  
@@ -3011,10 +3109,12 @@ unsigned long scan(int mode)
 				
 		if(key == 2)
 		{
-			return(f0 + df); //Set this memory frequency as new operating QRG
+			show_msg("QRG selected", bcolor);				
+			return(scanfreq[0] + df); //Set this memory frequency as new operating QRG
 		}
 		else
 		{
+			show_msg("Stopped.", bcolor);				
 			return(-1);
 		}			
 	}				    
@@ -3032,11 +3132,11 @@ unsigned long set_scan_frequency(int fpos, unsigned long f0)
     lcd_putstring(xpos0, ypos0, "SET SCAN FREQ", 1, fcolor, bcolor);
     if(!fpos)
     {
-        lcd_putstring(xpos0, ypos0 + 1, "FREQUENCY0:", 1, fcolor, bcolor);
+        lcd_putstring(xpos0, ypos0 + 1, "1st FREQUENCY", 1, fcolor, bcolor);
     }   
     else
     {
-        lcd_putstring(xpos0, ypos0 + 1, "FREQUENCY1:", 1, fcolor, bcolor);
+        lcd_putstring(xpos0, ypos0 + 1, "2nd FREQUENCY", 1, fcolor, bcolor);
     }   
         
     show_frequency1(f1, 1, bcolor);
@@ -3045,32 +3145,27 @@ unsigned long set_scan_frequency(int fpos, unsigned long f0)
     {
         if(tuningknob >= 1) //Turn CW
 		{
-			if(is_mem_freq_ok(f1, cur_band))
-			{
-				f1 += calc_tuningfactor();
-			}
-				
-            show_frequency1(f1, 0, bcolor);
+			f1 += calc_tuningfactor();
+			set_frequency1(f1);
+			show_frequency1(f1, 0, bcolor);
             tuningknob = 0;
 		}
 
 		if(tuningknob <= -1)  //Turn CCW
 		{    
-			if(is_mem_freq_ok(f1, cur_band))
-			{
-				f1 -= calc_tuningfactor();
-			}
-			 
-            show_frequency1(f1, 0, bcolor);
+			f1 -= calc_tuningfactor();
+			show_frequency1(f1, 0, bcolor);
             set_frequency1(f1);
             tuningknob = 0;
 		}		
 		key = get_keys();
 	}
 	
+	while(get_keys());
+	
 	if(key == 2)
 	{
-		store_frequency(f1, 33 + fpos); // !!!
+		store_frequency1(f1, cur_band * 2 + 550 + fpos * 4);
 		scanfreq[fpos] = f1;
 		return f1;
 	}	
@@ -3102,7 +3197,7 @@ void set_scan_threshold(void)
     {
          if(tuningknob >= 1)//Turn CW
 		{
-			if(thresh < 100)
+			if(thresh < 200)
 			{
 				thresh++;
 			}
@@ -3156,9 +3251,49 @@ ISR(TIMER1_COMPA_vect)
 
 int calc_tuningfactor(void)
 {
-	return (tuningcount * tuningcount);
+	return (tuningcount * tuningcount  * tuningcount);
 }	
 
+  ///////////////////
+ //// U A R T   ////
+///////////////////
+void usart_init(int baudrate)
+{
+		
+    /* Set baud rate */
+	UBRR0H = (unsigned char)(baudrate >> 8);
+	UBRR0L = (unsigned char)baudrate;
+	
+	/* Enable receiver and transmitter */
+	UCSR0B = (1<<RXEN)|(1<<TXEN);
+	
+	/* Set frame format: 8data, 1stop bit, NO parity */
+	UCSR0C = (1 << UCSZ00)|(1 << UCSZ01);
+		
+}
+
+void usart_transmit(unsigned char data)
+{
+	/* Wait for empty transmit buffer */
+	while(!(UCSR0A & (1<<UDRE)));
+	/* Put data into buffer, sends the data */
+	UDR0 = data;
+}
+
+int usart_receive(void)
+{
+	/* Wait for data to be received */
+	if(UCSR0A & (1<<RXC))
+	{
+		/* Get and return received data from buffer */
+	    return UDR0;
+	}
+	else
+	{
+		return -1;
+	}	    
+}
+	
 int main(void)
 {
 	int t1;
@@ -3180,9 +3315,11 @@ int main(void)
 	
 	unsigned long freq_temp0 = 0;      
 	unsigned long freq_temp1 = 0;    
-
+		
     LCDCTRLDDR = 0xF0; //LCD CTRL PA4:PA7 blue, brown, violet, green
     LCDDATADDR = 0xFF; //LCD DATA PC0:PC7
+    
+    int uchar;
     
     _delay_ms(100);
     
@@ -3258,6 +3395,9 @@ int main(void)
 	_delay_ms(100);
 	lcd_cls(bcolor);
 	_delay_ms(100);
+	
+	//UART init
+	usart_init(UARTBAUDSET);
 
     //ADC config and ADC init
     ADCSRA = (1<<ADPS0) | (1<<ADPS1) | (1<<ADEN); //Prescaler 64 and ADC on
@@ -3294,7 +3434,7 @@ int main(void)
 	//Load valid frequency if possible int0 2 VFOs
 	for(t1 = 0; t1 < 2; t1++)
 	{   
-	    freq_temp0 = load_frequency(cur_band + 96 + t1); 
+	    freq_temp0 = load_frequency0(cur_band + 96 + t1); 
         //Check if freq is OK
         if(is_mem_freq_ok(freq_temp0, cur_band))
         {
@@ -3316,13 +3456,13 @@ int main(void)
 	
 	//Load scan threshold
     s_threshold = eeprom_read_byte((uint8_t*)129);          	
-    if(s_threshold < 0 || s_threshold > 80)
+    if(s_threshold < 0 || s_threshold > 255)
     {
-		s_threshold = 30;
+		s_threshold = 100;
 	}
 	
 	//Load scan edge frequencies
-	scanfreq[0] = load_frequency(108);
+	scanfreq[0] = load_frequency0(108);
 	if(!is_mem_freq_ok(scanfreq[0], cur_band))
 	{
 		scanfreq[0] = band_f0[cur_band];
@@ -3333,9 +3473,9 @@ int main(void)
 	vfo_s[0] = 0;
 	vfo_s[1] = 1;
     
-    if(is_mem_freq_ok(load_frequency(last_memplace), cur_band))
+    if(is_mem_freq_ok(load_frequency0(last_memplace), cur_band))
 	{
-		show_mem_freq(load_frequency(last_memplace), bcolor);
+		show_mem_freq(load_frequency0(last_memplace), bcolor);
 	}
 	else
 	{	
@@ -3373,7 +3513,7 @@ int main(void)
 	//Load LO frequencies if available
     for(t1 = 0; t1 < 2; t1++)
     {
-		f_lo[t1] = load_frequency(t1 + 128);
+		f_lo[t1] = load_frequency1(t1 + 128);
 		if((f_lo[t1] < F_LO_LSB - 2000) || (f_lo[t1] > F_LO_USB + 2000))
 		{
 			if(!t1)
@@ -3453,7 +3593,7 @@ int main(void)
 			            //Load VFOs A and B with last stored frequencies
 	                    for(t1 = 0; t1 < 2; t1++)    
 	                    {
-                            freq_temp0 = load_frequency(cur_band + 96 + t1); 
+                            freq_temp0 = load_frequency0(cur_band + 96 + t1); 
 
                             //Check if freq is OK
                             if(is_mem_freq_ok(freq_temp0, cur_band))
@@ -3473,7 +3613,7 @@ int main(void)
                         show_sideband(sideband, 0);
 	                    store_last_band(cur_band);
 	                    last_memplace = 0;
-	                    freq_temp0 = load_frequency(last_memplace);
+	                    freq_temp0 = load_frequency0(last_memplace);
 	                    
 	                    //Load TX preset and show
 	                    mcp4725_set_value(load_tx_preset(cur_band));
@@ -3488,7 +3628,6 @@ int main(void)
 			            set_frequency2(f_lo[sideband]);
 			        }    
 			        ///////
-			            
 			        //VFO
 			        /////
 			        if(rval == 20 || rval == 21) //VFO A or VFO B
@@ -3545,7 +3684,7 @@ int main(void)
 				        case 60:t1 = save_mem_freq(f_vfo[cur_vfo], last_memplace); //Store
 					            if(t1 > -1)
 					            {
-									store_frequency(f_vfo[cur_vfo], 16 + cur_vfo);
+									store_frequency0(f_vfo[cur_vfo], 16 + cur_vfo);
 									last_memplace = t1;
 									store_last_mem(t1);
 					    		}    
@@ -3571,10 +3710,10 @@ int main(void)
 								}	
 								break;
 					
-				        case 70:t1 = scan(0);
+				        case 70:t1 = scan(0); //Scan MEMs
 				                if(t1 > 0)
 				                {
-					                freq_temp0 = load_frequency(t1);
+					                freq_temp0 = load_frequency0(t1);
 					                if(is_mem_freq_ok(freq_temp0, cur_band))
 					                {
 									    f_vfo[cur_vfo] = freq_temp0;
@@ -3584,7 +3723,7 @@ int main(void)
 								 set_frequency2(f_lo[sideband]);
 					            break;
 					    
-					    case 71:freq_temp0 = scan(1);
+					    case 71:freq_temp0 = scan(1); //Scan BAND
 					            if(is_mem_freq_ok(freq_temp0, cur_band))
 					            {
 									f_vfo[cur_vfo] = freq_temp0;
@@ -3593,23 +3732,40 @@ int main(void)
 								set_frequency2(f_lo[sideband]);
 								break;
 					                  
-					    case 72:lcd_cls(bcolor);
-					            if(!is_mem_freq_ok(scanfreq[0], cur_band))
+					    case 72:lcd_cls(bcolor); //Set scan frequencies
+					            //Load from EEPROM
+					            for(t1 = 0; t1 < 2; t1++)
 					            {
-									scanfreq[0] = band_f0[cur_band];
-								}	
-								if(!is_mem_freq_ok(scanfreq[1], cur_band))
-					            {
-									scanfreq[1] = band_f1[cur_band];
+					                scanfreq[t1] = load_frequency1(cur_band * 2 + 550 + t1 * 4);
+					                if(!is_mem_freq_ok(scanfreq[t1], cur_band))
+					                {
+										if(!t1)
+										{
+									        scanfreq[t1] = band_f0[cur_band] + 100;
+									    }
+									    else    
+									    {
+									        scanfreq[t1] = band_f1[cur_band] - 100;
+									    }
+								    }	
 								}
+								
 					            scanfreq[0] = set_scan_frequency(0, scanfreq[0]);
 					            scanfreq[1] = set_scan_frequency(1, scanfreq[1]); 
+					            
 					            if(scanfreq[1] < scanfreq[0]) //Change freq order if f0 > f1
 					            {
 									freq_temp0 = scanfreq[1];
 									scanfreq[1] = scanfreq[0];
 									scanfreq[0] = freq_temp0;
-								}	
+								}
+								
+								//Store in EEPROM
+								for(t1 = 0; t1 < 2; t1++)
+								{
+								    store_frequency1(cur_band * 2 + 550 + t1 * 4, scanfreq[t1]);
+								}
+								
 					            break;
 					                
 					    case 73:set_scan_threshold();            
@@ -3617,21 +3773,19 @@ int main(void)
 					    
 					    //SPLIT mode        
 					    case 80: split = 1;
-					             show_split(1, bcolor);
-					             break;         
-					             
-					    case 81: split = 0;
-					             show_split(0, bcolor);
-					             break;   
-					             
-					    case 82: vfo_s[0] = 0;  //TXA RXB
+					             vfo_s[0] = 0;  //TXA RXB
 					             vfo_s[1] = 1;
 					             break;               
-					    
-					    case 83: vfo_s[0] = 1;  //TXA RXB
+					             
+					    case 81: split = 2;
+					             vfo_s[0] = 1;  //TXA RXB
 					             vfo_s[1] = 0;
 					             break;               
 					             
+					    case 82: split = 0;
+					             show_split(0, bcolor);
+					             break;   
+					    
 					    case 90: set_lo_freq(0);
 					             break;         
 					             
@@ -3651,6 +3805,8 @@ int main(void)
 					             break;
 					    case 103: tx_preset_adjust();
 					             break;         
+					    case 104: rcv_mem_frequencies();
+					              break;
 				    }
 				       
 				    lcd_cls(bcolor);    
@@ -3660,8 +3816,8 @@ int main(void)
 			        while(get_keys());
 			        break;
 			        
-			case 2: store_frequency(f_vfo[0], cur_band + 96);
-			        store_frequency(f_vfo[1], cur_band + 97);
+			case 2: store_frequency0(f_vfo[0], cur_band + 96);
+			        store_frequency0(f_vfo[1], cur_band + 97);
 			        store_last_band(cur_band);
 			        store_last_vfo(cur_vfo);
 			        while(get_keys());
@@ -3705,7 +3861,7 @@ int main(void)
 		 	else
 		 	{
 				adcval = get_adc(1);
-				smeter((adcval >> 1), bcolor); //*0.5
+				smeter(adcval, bcolor); //*0.5
 			}    
  		 	runseconds10s = runseconds10;
  		}	
@@ -3715,6 +3871,7 @@ int main(void)
 		{
 			reset_smax();
 			runseconds10speak = runseconds10;				
+			usart_transmit('.');
 		}
 		
 		//Show temperature and clear message line after 10 seconds
@@ -3736,10 +3893,65 @@ int main(void)
 		}
 
 		//Detect PTT
-		get_ptt();
+		if(get_ptt())
+		{
+			if(!txrx)
+		    {
+			    txrx = 1;
+			    show_txrx(txrx);
+                draw_meter_scale(1, bcolor);				
+		    
+    		    switch(split)
+	    	    {
+		    		case 1: set_frequency1(f_vfo[vfo_s[0]]);
+			    	        show_frequency1(f_vfo[vfo_s[0]], 0, bcolor);
+	                        show_frequency2(8, 9, f_vfo[vfo_s[1]], bcolor, 100, 1); 
+				            break;
+				    case 2: set_frequency1(f_vfo[vfo_s[1]]);
+				            show_frequency1(f_vfo[vfo_s[1]], 0, bcolor);
+    				        show_frequency2(8, 9, f_vfo[vfo_s[0]], bcolor, 100, 1); 
+	    			        break;        
+		    		case 0: set_frequency1(f_vfo[cur_vfo]);
+			    	        show_frequency1(f_vfo[cur_vfo], 0, bcolor);        
+			    }        
+			    
+			    PORTA |= 8; //TX on
+			}   
+	    }
+	    else
+	    {	
+		    if(txrx)
+		    {
+			    txrx = 0;
+			    show_txrx(txrx);
+			    draw_meter_scale(0, bcolor);
+			    
+			    switch(split)
+		        {
+				    case 1: set_frequency1(f_vfo[vfo_s[1]]);
+				            show_frequency1(f_vfo[vfo_s[1]], 0, bcolor);
+	                        show_frequency2(8, 9, f_vfo[vfo_s[0]], bcolor, 100, 1); 
+				            break;
+				    case 2: set_frequency1(f_vfo[vfo_s[0]]);
+				            show_frequency1(f_vfo[vfo_s[0]], 0, bcolor);
+				            show_frequency2(8, 9, f_vfo[vfo_s[1]], bcolor, 100, 1); 
+				            break;        
+				    case 0: set_frequency1(f_vfo[cur_vfo]);
+				            show_frequency1(f_vfo[cur_vfo], 0, bcolor);        
+			    }        
+			    
+			    PORTA &= ~(8); 		//TX off    
+		    }
+		}   
 		
-	}
-
+		uchar = usart_receive();
+	    if(uchar > -1)
+	    {
+		    lcd_putchar(calcx(0), calcy(14), uchar, 1, YELLOW, DARK_BLUE1);
+	    }
+	}	
+	
+	
 	return 0;
 }
 
