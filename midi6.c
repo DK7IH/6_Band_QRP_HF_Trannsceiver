@@ -2,14 +2,13 @@
 /*               6-Band QRP HF Transceiver "Midi6"               */ 
 /*  ************************************************************ */
 /*  Mikrocontroller:  ATMEL AVR ATmega128, 16 MHz                */
-/*  LCD: CP11003  												 */
-/*  DDS used: AD9951, AD9834                                     */  
+/*  LCD: CP11003  (8 bit parallel interface)                     */
+/*  DDS used: AD9951 (VFO), AD9834 (LO)                          */  
 /*                                                               */
 /*  Compiler:         GCC (GNU AVR C-Compiler)                   */
-/*  Autor:            Peter Rachow (DK7IH)                       */
-/*  Letzte Aenderung: 2020-01-11                                 */
+/*  Author:           Peter Rachow (DK7IH)                       */
+/*  Last modification: 2020-26-11                                */
 ///////////////////////////////////////////////////////////////////
-//8 bit parallel LCD Version
 
 //MIC connector from front (Mini DIN)
 //          [   ]
@@ -22,17 +21,15 @@
 // 2=MIC
 // 3,4=GND
 
-// UART 3 pole connector
+// UART 3 pole connector for CAT (computer aided tuning)
 //             ----------- 
 // <AAA|BBB|CCC
 //             ----------- A TX out|B  RX in  | C GND
 //
 // MUC: grey: RX, green: TX
 
-//Line orange, white: GND, blue rx, yellow TX
-
   ///////////////////////
- //       PORTS       //
+ //     MCU PORTS     //
 ///////////////////////
 
   ///////////////
@@ -184,6 +181,7 @@
 #define FOSC 16000000// Clock Speed
 #define BAUD 2400
 #define UARTBAUDSET FOSC/16/BAUD-1
+#define MAXRXBUFLEN 32
 
   ///////////////////
  //  LCD-Display  //
@@ -387,7 +385,7 @@ const char xchar[][24] PROGMEM={
 {0x00,0x00,0x00,0x00,0x60,0x03,0x60,0x03,0x60,0x03,0x70,0x07,0x3F,0x7E,0x1F,0xFC,0x01,0xC0,0x00,0x80,0x00,0x00,0x00,0x00},	// 0x7D
 {0x00,0x00,0x00,0x10,0x00,0x18,0x00,0x0C,0x00,0x04,0x00,0x0C,0x00,0x18,0x00,0x10,0x00,0x18,0x00,0x0C,0x00,0x04,0x00,0x00},	// 0x7E
 {0x00,0x00,0x0F,0x00,0x0F,0x80,0x0C,0xC0,0x0C,0x60,0x0C,0x30,0x0C,0x30,0x0C,0x60,0x0C,0xC0,0x0F,0x80,0x0F,0x00,0x00,0x00},	// 0x7F
-{0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x78,0x00,0xFC,0x00,0xCC,0x00,0xCC,0x00,0xFC,0x00,0x78,0x00,0x00,0x00,0x00,0x00,0x00},	// 0x80 °-sign
+{0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x78,0x00,0xFC,0x00,0xCC,0x00,0xCC,0x00,0xFC,0x00,0x78,0x00,0x00,0x00,0x00,0x00,0x00},	// 0x80 Degree-sign
 };
 //LCD additional data
 int bcolor = BLACK0; //Standard Background Color
@@ -442,16 +440,16 @@ void lcd_cls(int);
 void lcd_draw_pixel(int);
 void lcd_putchar(int, int, int, int, int, int);
 void lcd_putstring(int, int, char*, int, int, int);
-void lcd_putnumber(int, int, unsigned long, int, int, int, int);
+void lcd_putnumber(int, int, long, int, int, int, int);
 void lcd_init(void);
 void lcd_setbacklight(int);
 
 //Extended LCD functions
-void show_all_data(unsigned long, unsigned long, int, int, int, int, int, unsigned long, int, int, int, int);
-void show_frequency1(unsigned long, int, int);
-void show_frequency2(int, int, unsigned long, int, int, int);
+void show_all_data(long, long, int, int, int, int, int, long, int, int, int, int);
+void show_frequency1(long, int, int);
+void show_frequency2(int, int, long, int, int, int);
 void show_mem_number(int);
-void show_mem_freq(unsigned long, int);
+void show_mem_freq(long, int);
 void show_sideband(int, int);
 void show_voltage(int);
 void show_band(int);
@@ -468,7 +466,10 @@ void reset_smax(void);
 void smeter(int, int);
 void clear_smeter(int);
 void show_msg(char*, int);//STRING FUNCTIONS
-int int2asc(unsigned long, int, char*, int);
+int int2asc(long, int, char*, int);
+long asc2long(char*);
+void get_info_from_string(char*, char*, int);
+
 //int strlen(char *s);
 int calcx(int col);
 int calcy(int row);
@@ -477,13 +478,13 @@ int calcy(int row);
 void dds1_send_bit(int);
 void dds1_send_word(unsigned int);
 void dds1_send_byte(unsigned int);
-void set_frequency1(unsigned long frequency);
+void set_frequency1(long frequency);
 
 void dds1_send_bit(int);
 void dds2_start(void);
 void dds2_stop(void);
 void dds2_send_bit(int sbit);
-void set_frequency2(unsigned long fx);
+void set_frequency2(long fx);
 
 void set_lo_freq(int);
 //ADC
@@ -507,7 +508,7 @@ void draw_vert_line(int, int, int, int);
 int menu0_get_xp(int);
 int menu0_get_yp(int);
 long menu0(long, int, int);
-unsigned long menu1(int, unsigned long, int, int);
+long menu1(int, long, int, int);
 void print_menu_head(char*, int);
 void print_menu_item(int, int, int);
 void print_menu_item_list(int, int);
@@ -515,20 +516,23 @@ int navigate_thru_item_list(int, int, int, int, int);
 void print_menu_help(int, int, int, int);
 
 //Scanning & VFO
-unsigned long scan(int);
+long scan(int);
 void set_scan_threshold(void);
-unsigned long set_scan_frequency(int, unsigned long);
+long set_scan_frequency(int, long);
 
 //Tone and AGC
 void set_tone(int);
 void set_agc(int);
 void set_att(int);
-void set_band(int);
+
+//VFO, Band etc.
+void set_band(int, int);
+void set_vfo(int);
 
 //BAcklight
 int adjustbacklight(void);
 
-//TWI - I²C
+//TWI - Iï¿½C
 void twi_init(void);
 void twi_start(void);
 void twi_stop(void);
@@ -543,34 +547,37 @@ int load_tx_preset(int);
 //EEPROM
 //Loading
 int load_last_band(void);
-unsigned long load_frequency0(int);
-unsigned long load_frequency1(int);
+long load_frequency0(int);
+long load_frequency1(int);
 int load_last_mem(void);
 int load_last_vfo(void);
-unsigned long recall_mem_freq(int);
+long recall_mem_freq(int);
 //Storing
 void store_last_band(int);
-void store_frequency0(unsigned long, int);
-void store_frequency1(unsigned long, int);
+void store_frequency0(long, int);
+void store_frequency1(long, int);
 void store_last_vfo(int);
 void store_last_mem(int);
-int save_mem_freq(unsigned long, int);
+int save_mem_freq(long, int);
 
+//MEM Data transfer
 void rcv_mem_frequencies(void);
+void txm_mem_frequencies(void);
 
 //Checking
-int is_mem_freq_ok(unsigned long,int);
+int is_mem_freq_ok(long,int);
 
 //UART
 void usart_init(int);
 int usart_receive(void);
-void usart_transmit(unsigned char data);
+void usart_transmit(unsigned char);
+void usart_sendstring(char*);
 
   /////////////
  //Variables//
 /////////////
 //Seconds counting
-unsigned long runseconds10 = 0; 
+long runseconds10 = 0; 
 
 //S-Meter temporary max. value
 int smaxold = 0;
@@ -621,22 +628,22 @@ int txrx = 0;
     #define F_LO_USB 9999840
 #endif  
 
-unsigned long f_lo[] = {F_LO_LSB, F_LO_USB}; //LSB, USB
+long f_lo[] = {F_LO_LSB, F_LO_USB}; //LSB, USB
 
 int sideband = 0;  //Current sideband in use LSB=0, USB=1
 int cur_band;
 
 //VFO
 #define MAXVFOS 10
-unsigned long f_vfo[2];
+long f_vfo[2];
 int vfo_s[2];
 int split = 0; //0=off, 1=TXA RXB, 2=TXB RXA
 
 //Data for 6 bands
 int std_sideband [] = {0, 0, 0, 1, 1, 1};                                    //Standard sideband for each rf band
-unsigned long c_freq[] =  {1950000, 3650000, 7120000, 14180000, 21290000, 28500000};  //Center frequency
-unsigned long band_f0[] = {1810000, 3500000, 7000000, 14000000, 21000000, 28000000};  //Edge frequency I
-unsigned long band_f1[] = {2000000, 3800000, 7200000, 14350000, 21450000, 29700000};  //Edge frequency II
+long c_freq[] =  {1950000, 3650000, 7120000, 14180000, 21290000, 28500000};  //Center frequency
+long band_f0[] = {1810000, 3500000, 7000000, 14000000, 21000000, 28000000};  //Edge frequency I
+long band_f1[] = {2000000, 3800000, 7200000, 14350000, 21450000, 29700000};  //Edge frequency II
 
 //Frequency memories
 #define MAXMEM 15
@@ -644,7 +651,7 @@ int last_memplace = 0;
 
 //Scanning
 int s_threshold = 30;
-unsigned long scanfreq[2];
+long scanfreq[2];
 
 //Encoder & tuning
 int laststate = 0; //Last state of rotary encoder
@@ -661,10 +668,10 @@ int tx_preset[6] = {0, 0, 0, 0, 0, 0};
 
 //METER
 int smax = 0;
-unsigned long runseconds10s = 0;
+long runseconds10s = 0;
 
 //Menu n=items-1
-int menu_items[MENUITEMS] =  {5, 1, 3, 1, 3, 3, 1, 3, 2, 1, 4}; 
+int menu_items[MENUITEMS] =  {5, 1, 3, 1, 3, 3, 1, 3, 2, 1, 5}; 
 
 //Backlight
 int blight = 128;
@@ -884,11 +891,11 @@ void lcd_putstring(int x, int y, char *text, int size, int fc, int bc)
 }		
 
 //Convert a number to a string and print it
-//col, row: Coordinates, Num: int or unsigned long to be displayed
+//col, row: Coordinates, Num: int or long to be displayed
 //dec: Set position of decimal separator
 //
 //inv: Set to 1 if inverted charactor is required
-void lcd_putnumber(int x, int y, unsigned long num, int dec, int lsize, int fc, int bc)
+void lcd_putnumber(int x, int y, long num, int dec, int lsize, int fc, int bc)
 {
     char *s = malloc(16);
 	if(s != NULL)
@@ -912,7 +919,7 @@ void lcd_setbacklight(int duty_cycle)
   ///////////////////////////////////////
   // Data Display Functions for Radio  //
  ///////////////////////////////////////
-void show_all_data(unsigned long f0, unsigned long f1, int refresh, int s, int scan_s, int vfo, int splt, unsigned long splt_freq, int splt_invert, int mtr_scale, int memplace, int tr)
+void show_all_data(long f0, long f1, int refresh, int s, int scan_s, int vfo, int splt, long splt_freq, int splt_invert, int mtr_scale, int memplace, int tr)
 {
 	int linecolor = GRAY;
 			
@@ -958,7 +965,7 @@ int calcy(int row)
 }
 
 //Current frequency (double letter height)
-void show_frequency1(unsigned long f, int refresh, int bc)
+void show_frequency1(long f, int refresh, int bc)
 {
 	char *buf;
 	int t1, t2, x;
@@ -1025,7 +1032,7 @@ void show_frequency1(unsigned long f, int refresh, int bc)
 }
 
 //Memeory frequency on selection memplace in menu
-void show_frequency2(int x, int y, unsigned long f, int bc, int x10, int digits)
+void show_frequency2(int x, int y, long f, int bc, int x10, int digits)
 {
 	int fcolor = WHITE;
 		
@@ -1397,7 +1404,7 @@ void show_mem_number(int mem_addr)
 	}
 }
 
-void show_mem_freq(unsigned long f, int bc)
+void show_mem_freq(long f, int bc)
 {
 	int xpos = 12, ypos = 1;
 	int fcolor = LIGHT_GREEN;
@@ -1416,10 +1423,10 @@ void show_mem_freq(unsigned long f, int bc)
  // STRING FUNCTIONS //
 //////////////////////
 //INT 2 ASC
-int int2asc(unsigned long num, int dec, char *buf, int buflen)
+int int2asc(long num, int dec, char *buf, int buflen)
 {
     int i, c, xp = 0, neg = 0;
-    unsigned long n, dd = 1E09;
+    long n, dd = 1E09;
 
     if(!num)
 	{
@@ -1483,17 +1490,60 @@ int int2asc(unsigned long num, int dec, char *buf, int buflen)
 	return c;
 }
 
-//STRLEN
-/*
-int strlen(char *s)
+//ASCII To LONG
+
+long asc2long(char *inputstr)
 {
-   int t1 = 0;
+	
+    int t1, t2;
+    long pow_of_ten;
+    long n;
+    long x = 0;
+   
+    for(t1 = 0; t1 < strlen(inputstr); t1++)
+    {
+        n = inputstr[strlen(inputstr) - t1 - 1] - 48;
+        pow_of_ten = 1;
+        for(t2 = 0; t2 < t1; t2++)
+        {
+            pow_of_ten *= 10;
+        }    
+        x += n * pow_of_ten;
+    }
+    return x;
+    
+}   
 
-   while(*(s + t1++));
-
-   return (t1 - 1);
+//Get data from Chr(32) separated string
+void get_info_from_string(char *istr, char *buf, int pos)
+{
+    int pos2 = 0;
+    int t1;
+    
+    //Find position 
+    for(t1 = 0; t1 < strlen(istr) && pos2 < pos; t1++)
+    {
+        if(istr[t1] == ' ')
+        {
+            pos2++;
+        }
+    }
+        
+    //Copy string to buffer
+    for(t1 = t1; t1 < strlen(istr); t1++)
+    {
+        if(istr[t1] != 32)
+        {
+            *buf++ = istr[t1];
+        }  
+        else
+        {
+            return;
+        }    
+    }
 }
-*/
+
+
   /////////////////
  //   GRAPHICS  //
 /////////////////
@@ -1831,12 +1881,58 @@ void set_att(int att_value)
 
 
 //Set relays for spec. band
-void set_band(int b)
+void set_band(int band, int vfo)
 {
+	
+	int t1;
+	long freq_temp0;
+	
+	//Load VFOs A and B with last stored frequencies
+	for(t1 = 0; t1 < 2; t1++)    
+	{
+        freq_temp0 = load_frequency0(band + 96 + t1); 
+
+         //Check if freq is OK
+         if(is_mem_freq_ok(freq_temp0, band))
+         {
+		     f_vfo[t1] = freq_temp0; 
+		 }
+		 else
+		 {
+		      f_vfo[t1] = c_freq[band];
+		 }    
+	}    
+        			            
+	set_frequency1(f_vfo[vfo]);
+	sideband = std_sideband[band];
+    set_frequency2(f_lo[sideband]);
+    show_frequency1(f_vfo[vfo], 1, bcolor);
+    show_sideband(sideband, 0);
+	store_last_band(band);
+	
+	last_memplace = 0;
+	freq_temp0 = load_frequency0(last_memplace);
+	                    
+	//Load TX preset and show
+	mcp4725_set_value(load_tx_preset(band));
+	
+	//Relay set
 	PORTA &= ~(0x01);  //Reset PA0:PA2
 	PORTA &= ~(0x02);  
 	PORTA &= ~(0x04);  
-	PORTA |= b + 1;
+	PORTA |= band + 1;
+}
+
+//Set new VFO
+void set_vfo(int vfo)
+{
+	if(!is_mem_freq_ok(f_vfo[vfo], cur_band))
+	{
+	     f_vfo[vfo] = c_freq[cur_band];
+	}	     
+	set_frequency1(f_vfo[vfo]);
+	set_frequency2(f_lo[sideband]);
+	show_frequency1(f_vfo[vfo], 1, bcolor);
 }
 
 void set_dualtone_oscillator(int state)
@@ -1862,7 +1958,7 @@ void dds1_send_bit(int sbit)
 {
     DDS1_PORT &= ~(DDS1_SCLK);  //SCLK lo
     	
-    //Bit setzen oder löschen
+    //Bit setzen oder lï¿½schen
 	if(sbit)
 	{
 		DDS1_PORT|= DDS1_SDIO;  //SDATA  set
@@ -1900,22 +1996,22 @@ void dds1_send_word(unsigned int sword)
 
 //SET frequency AD9951 DDS
 //f.clock = 400MHz
-void set_frequency1(unsigned long frequency)
+void set_frequency1(long frequency)
 {
-    unsigned long f;
-    unsigned long fword;
+    long f;
+    long fword;
     int t1, t2, shiftbyte = 24, resultbyte, x;
-    unsigned long comparebyte = 0xFF000000;
+    long comparebyte = 0xFF000000;
 	
 	f = frequency + 3000; //Offset because of inaccuracy of crystal oscillator
 		 
 	if(!sideband)//Calculate correct offset from center frequency in display for each sideband
 	{
-	     fword = (unsigned long) (f + INTERFREQUENCY - 5000) * 10.73741824; //USB
+	     fword = (long) (f + INTERFREQUENCY - 5000) * 10.73741824; //USB
 	}    
 	else
     {
-	     fword = (unsigned long) (f + INTERFREQUENCY) * 10.73741824; //LSB
+	     fword = (long) (f + INTERFREQUENCY) * 10.73741824; //LSB
 	}    
 	
     //Start transfer to DDS
@@ -1977,7 +2073,7 @@ void dds2_send_bit(int sbit)
     DDS2_PORT &= ~(DDS2_SCLK);  //SCLK lo
 }
 
-void set_frequency2(unsigned long f)
+void set_frequency2(long f)
 {
 
     double fword0;
@@ -2060,7 +2156,7 @@ void set_frequency2(unsigned long f)
 void set_lo_freq(int sb)
 {
 	int key;
-	unsigned long f = f_lo[sb];
+	long f = f_lo[sb];
 	int fcolor = WHITE;
 	
 	lcd_cls(bcolor);
@@ -2117,7 +2213,7 @@ void set_lo_freq(int sb)
  //   E  E  P  R  O  M  //
 /////////////////////////
 //Store MEM Frequency
-void store_frequency0(unsigned long f, int mem)
+void store_frequency0(long f, int mem)
 {
     int start_adr = cur_band * 64 + mem * 4;
     
@@ -2126,9 +2222,9 @@ void store_frequency0(unsigned long f, int mem)
 }
 
 //Store any other frequency by start byte address
-void store_frequency1(unsigned long f, int start_adr)
+void store_frequency1(long f, int start_adr)
 {
-    unsigned long hiword, loword;
+    long hiword, loword;
     unsigned char hmsb, lmsb, hlsb, llsb;
 	
 	cli();
@@ -2156,16 +2252,16 @@ void store_frequency1(unsigned long f, int start_adr)
 }
 
 //Load a frequency from memory by memplace
-unsigned long load_frequency0(int mem)
+long load_frequency0(int mem)
 {
     int start_adr = cur_band * 64 + mem * 4;
 		
     return load_frequency1(start_adr);
-    //rf = (unsigned long) (hmsb << 24) + (unsigned long) (hlsb << 16) + (unsigned long) (lmsb << 8) + llsb;
+    //rf = (long) (hmsb << 24) + (long) (hlsb << 16) + (long) (lmsb << 8) + llsb;
 }
 
 //Load any other frequency by start byte address
-unsigned long load_frequency1(int start_adr)
+long load_frequency1(int start_adr)
 {
     unsigned char hmsb, lmsb, hlsb, llsb;
     		
@@ -2176,8 +2272,8 @@ unsigned long load_frequency1(int start_adr)
     llsb = eeprom_read_byte((uint8_t*)start_adr + 3);
 	sei();
 	
-    return (unsigned long) 16777216 * hmsb + (unsigned long) 65536 * hlsb + (unsigned int) 256 * lmsb + llsb;
-    //rf = (unsigned long) (hmsb << 24) + (unsigned long) (hlsb << 16) + (unsigned long) (lmsb << 8) + llsb;
+    return (long) 16777216 * hmsb + (long) 65536 * hlsb + (unsigned int) 256 * lmsb + llsb;
+    //rf = (long) (hmsb << 24) + (long) (hlsb << 16) + (long) (lmsb << 8) + llsb;
 }
 
 //Load las memory used
@@ -2187,7 +2283,7 @@ int load_last_mem(void)
 }
 
 //Check if freq is in 20m-band
-int is_mem_freq_ok(unsigned long f, int cband)
+int is_mem_freq_ok(long f, int cband)
 {
 	
 	if(f >= band_f0[cband] && f <= band_f1[cband])
@@ -2200,6 +2296,30 @@ int is_mem_freq_ok(unsigned long f, int cband)
 	}		
 }	
 
+//Send 6 by 16 mem frequencies to uasrt0
+void txm_mem_frequencies(void)
+{
+	int c = 0;
+	int key;
+	char *sbuf;
+	
+	sbuf = malloc(32);
+		
+	while(get_keys());
+	
+	for(c = 0; c < 384 && !key; c++)
+ 	{
+		key = get_keys();
+		usart_transmit(eeprom_read_byte((uint8_t*)c));
+	}	
+		
+	int2asc(c, -1, sbuf, 8);
+	strcat(sbuf, " Bytes transmitted.");
+	show_msg(sbuf, bcolor);
+	free(sbuf);
+	_delay_ms(1000);
+
+}	
 //Load 6 by 16 mem frequencies via uasrt0
 void rcv_mem_frequencies(void)
 {
@@ -2314,7 +2434,7 @@ void store_last_mem(int mem)
 //Recall AND display a frequency from memory
 //and let user select
 //Returns freq in bits 0:27 and mem_number in bits 28:31
-unsigned long recall_mem_freq(int mem_addr)
+long recall_mem_freq(int mem_addr)
 {
 	int key;
 	int fcolor = WHITE;
@@ -2396,7 +2516,7 @@ unsigned long recall_mem_freq(int mem_addr)
 	    case 2: if(is_mem_freq_ok(load_frequency0(mem_addr), cur_band))
 	            {
 	                store_last_mem(mem_addr);
-	                return(load_frequency0(mem_addr) + ((unsigned long)(mem_addr & 0x0F) << 28));
+	                return(load_frequency0(mem_addr) + ((long)(mem_addr & 0x0F) << 28));
 	            }    
 				break;
 	}	
@@ -2407,10 +2527,10 @@ unsigned long recall_mem_freq(int mem_addr)
 }	
 
 //Save a frequenca to a user selected memplace
-int save_mem_freq(unsigned long f, int mem)
+int save_mem_freq(long f, int mem)
 {
     int mem_addr = mem;
-    unsigned long mem_freq;
+    long mem_freq;
 	int key;
 	int fcolor = WHITE;
 	
@@ -2537,7 +2657,7 @@ void print_menu_item(int m, int i, int invert)
 	                                    {"MEMORY ", "BAND   ", "LIMITS ", "THRESH ", "       ", "       "}, 
 	                                    {"TXA RXB", "TXB RXA", "OFF    ", "       ", "       ", "       "},
 	                                    {"LO LSB ", "LO USB ", "       ", "       ", "       ", "       "},
-	                                    {"B-LIGHT", "TX TEST", "TX TUNE", "TX PRES", "GET MEM", "       "}};
+	                                    {"B-LIGHT", "TX TEST", "TX TUNE", "TX PRES", "RX MEMO", "TX MEMO"}};
 	int xpos1 = 12;
 	int fc, bc;
 	
@@ -2626,7 +2746,7 @@ int navigate_thru_item_list(int m, int maxitems, int curitem, int cvfo, int cban
 			        {
 				        set_frequency1(f_vfo[menu_pos]);
 				        lcd_putnumber(calcx(2), calcy(7), f_vfo[menu_pos] / 100, 1, 1, LIGHT_BLUE, bcolor);
-				        //void lcd_putnumber(int x, int y, unsigned long num, int dec, int lsize, int fc, int bc)
+				        //void lcd_putnumber(int x, int y, long num, int dec, int lsize, int fc, int bc)
 				    }    
 			        break; //VFO set: No preview available
 			case 3: set_att(menu_pos); //ATT     
@@ -2760,7 +2880,7 @@ long menu0(long f, int c_vfo, int c_band)
 	
 
 			
-unsigned long menu1(int menu, unsigned long f, int c_vfo, int c_band)
+long menu1(int menu, long f, int c_vfo, int c_band)
 {
 	//                              0       1       2      3       4       5      6      7        8        9        10
 	char menu_str[MENUITEMS][10] = {"BAND", "SIDE", "VFO", "ATT ", "TONE", "AGC", "MEM", "SCAN", "SPLIT", "LO ADJ", "XTRA"};
@@ -2899,7 +3019,7 @@ void tx_test(void)
 				lcd_cls(bcolor);
 	            show_msg("Transmitter test mode", bcolor);
 	        }
-		    set_band(t1);
+		    set_band(t1, 0);
 		    set_frequency1(c_freq[t1]);
 		    show_frequency1(c_freq[t1], 1, bcolor);
 		    key = 0;
@@ -2948,10 +3068,10 @@ void tune(void)
  ////////////////////////
 //Scans a frequency range defined by 2 edge frequencies
 //Scan==0: scan memories, scan=1: scan band
-unsigned long scan(int mode)
+long scan(int mode)
 {
     int t1 = 0;
-    unsigned long f, df, runsecsold = 0;
+    long f, df, runsecsold = 0;
     int key = 0;
     int sval;
         
@@ -3121,12 +3241,12 @@ unsigned long scan(int mode)
 	return(-1);
 }	
 
-unsigned long set_scan_frequency(int fpos, unsigned long f0)
+long set_scan_frequency(int fpos, long f0)
 {
 	int xpos0 = 0;
 	int ypos0 = 0;
     int key = 0;
-    unsigned long f1 = f0;
+    long f1 = f0;
     int fcolor = WHITE;
     
     lcd_putstring(xpos0, ypos0, "SET SCAN FREQ", 1, fcolor, bcolor);
@@ -3272,6 +3392,7 @@ void usart_init(int baudrate)
 		
 }
 
+	
 void usart_transmit(unsigned char data)
 {
 	/* Wait for empty transmit buffer */
@@ -3293,33 +3414,49 @@ int usart_receive(void)
 		return -1;
 	}	    
 }
+
+void usart_sendstring(char *s)
+{
+	int t1 = 0;
+	
+	while(s[t1])
+	{
+		usart_transmit(s[t1++]);
+	}
+}		
 	
 int main(void)
 {
 	int t1;
-	
+    int tmp0, tmp1;
+    	
 	curagc = 1;
 	curtone = 1;
 	int key;
-	unsigned long rval = 0;
+	long rval = 0;
 	
 	int adcval;
 	
-	unsigned long runseconds10s = 0;     //Ms counter for displaying S-Value 
-	unsigned long runseconds10speak = 0; //Ms counter for resetting peak value of S-Meter
-	unsigned long runseconds10msg = 0;   //Ms for holding message displayed
-	unsigned long runseconds10volts = 0; //Ms for volatge check
+	long runseconds10s = 0;     //Ms counter for displaying S-Value 
+	long runseconds10speak = 0; //Ms counter for resetting peak value of S-Meter
+	long runseconds10msg = 0;   //Ms for holding message displayed
+	long runseconds10volts = 0; //Ms for volatge check
 	
 	int sval = 0;
 	int cur_vfo = 0, alt_vfo = 1;
 	
-	unsigned long freq_temp0 = 0;      
-	unsigned long freq_temp1 = 0;    
+	//CAT interface
+	char *buf1, *buf2, *buf3;
+	char ch;
+	int cnt = 0;
+	
+	double v1;
+	
+	long freq_temp0 = 0;      
+	long freq_temp1 = 0;    
 		
     LCDCTRLDDR = 0xF0; //LCD CTRL PA4:PA7 blue, brown, violet, green
     LCDDATADDR = 0xFF; //LCD DATA PC0:PC7
-    
-    int uchar;
     
     _delay_ms(100);
     
@@ -3396,6 +3533,9 @@ int main(void)
 	lcd_cls(bcolor);
 	_delay_ms(100);
 	
+	//Init TWI
+    twi_init();
+    
 	//UART init
 	usart_init(UARTBAUDSET);
 
@@ -3410,7 +3550,6 @@ int main(void)
 	{
 		cur_band = 2; //Set 40m as default
 	}
-	set_band(cur_band);
 	    
 	sideband = std_sideband[cur_band];
 		
@@ -3421,6 +3560,8 @@ int main(void)
 		cur_vfo = 0;
 		alt_vfo = 1;
 	}
+	
+	set_band(cur_band, cur_vfo);
 	
 	if(cur_vfo)
 	{
@@ -3509,6 +3650,19 @@ int main(void)
     set_att(curatt);
     
     show_all_data(f_vfo[cur_vfo], f_vfo[alt_vfo], 0, sideband, 0, cur_vfo, 0, 0, 0, 0, last_memplace, txrx);
+    
+    //CAT variables, buffers etc.
+    buf1 = malloc(MAXRXBUFLEN);
+    buf2 = malloc(MAXRXBUFLEN);
+    buf3 = malloc(MAXRXBUFLEN);
+    
+    for(t1 = 0; t1 < 32; t1++) //Init buffers
+	{
+	    buf1[t1] = 0;
+	    buf2[t1] = 0;
+	    buf3[t1] = 0;
+	}	
+	/////////////////////////////////////////////
 	
 	//Load LO frequencies if available
     for(t1 = 0; t1 < 2; t1++)
@@ -3542,10 +3696,7 @@ int main(void)
     lcd_setbacklight(blight);
     
     lcd_putnumber(calcx(0), calcy(14), f_lo[sideband], -1, 1, WHITE, bcolor);
-    
-    //Init TWI
-    twi_init();
-        
+            
     //Load TX preset values
     for(t1 = 0; t1 < 6; t1++)
     {
@@ -3583,40 +3734,13 @@ int main(void)
 		    case 1:	rval = menu0(f_vfo[cur_vfo], cur_vfo, cur_band);
 		            key = 0;
 			        
-			        //Band change
+			        //BAND
+			        //////
 			        if(rval >= 0 && rval < 6)
 			        {
 						//last_freq[cur_band] = f_vfo[cur_vfo];
 			            cur_band = rval;
-			            set_band(cur_band);
-			            
-			            //Load VFOs A and B with last stored frequencies
-	                    for(t1 = 0; t1 < 2; t1++)    
-	                    {
-                            freq_temp0 = load_frequency0(cur_band + 96 + t1); 
-
-                            //Check if freq is OK
-                            if(is_mem_freq_ok(freq_temp0, cur_band))
-                            {
-		                         f_vfo[t1] = freq_temp0; 
-		                    }
-		                    else
-		                    {
-		                         f_vfo[t1] = c_freq[cur_band];
-		                    }    
-		                }    
-        			            
-			            set_frequency1(f_vfo[cur_vfo]);
-			            sideband = std_sideband[cur_band];
-                        set_frequency2(f_lo[sideband]);
-                        show_frequency1(f_vfo[cur_vfo], 1, bcolor);
-                        show_sideband(sideband, 0);
-	                    store_last_band(cur_band);
-	                    last_memplace = 0;
-	                    freq_temp0 = load_frequency0(last_memplace);
-	                    
-	                    //Load TX preset and show
-	                    mcp4725_set_value(load_tx_preset(cur_band));
+			            set_band(cur_band, cur_vfo);
 			        }   
 			        
 			        //SIDEBAND
@@ -3627,22 +3751,14 @@ int main(void)
 			            set_frequency1(f_vfo[cur_vfo]);
 			            set_frequency2(f_lo[sideband]);
 			        }    
-			        ///////
+			        
 			        //VFO
 			        /////
-			        if(rval == 20 || rval == 21) //VFO A or VFO B
+			        if(rval == 20 || rval == 21) //VFO A or VFO B set
 			        {
-						freq_temp0 = f_vfo[cur_vfo];
 						alt_vfo = cur_vfo;
-						cur_vfo = rval - 20;
-						if(!is_mem_freq_ok(f_vfo[cur_vfo], cur_band))
-						{
-						     f_vfo[cur_vfo] = c_freq[cur_band];
-						}	     
-				        set_frequency1(f_vfo[cur_vfo]);
-				        set_frequency2(f_lo[sideband]);
-			            show_frequency1(f_vfo[cur_vfo], 1, bcolor);
-			        }    
+						set_vfo(rval - 20);
+				    }    
 			        
 			        if(rval == 22)
 			        {
@@ -3798,7 +3914,7 @@ int main(void)
 					    case 101: tx_test();
 					             set_frequency1(f_vfo[cur_vfo]);
 					             show_frequency1(f_vfo[cur_vfo], 1, bcolor);
-					             set_band(cur_band);
+					             set_band(cur_band, cur_vfo);
 					             txrx = 0;
 					             break;                   
 					    case 102: tune();         
@@ -3807,6 +3923,8 @@ int main(void)
 					             break;         
 					    case 104: rcv_mem_frequencies();
 					              break;
+			   	        case 105: txm_mem_frequencies();
+					              break;          
 				    }
 				       
 				    lcd_cls(bcolor);    
@@ -3835,13 +3953,17 @@ int main(void)
 					    case 101: tx_test();
 					             set_frequency1(f_vfo[cur_vfo]);
 					             show_frequency1(f_vfo[cur_vfo], 1, bcolor);
-					             set_band(cur_band);
+					             set_band(cur_band, cur_vfo);
 					             txrx = 0;
 					             break;                   
 					    case 102: tune();         
 					             break;
 					    case 103: tx_preset_adjust();
 					             break;   
+                        case 104: rcv_mem_frequencies();
+					              break;
+			   	        case 105: txm_mem_frequencies();
+					              break;          					             
 			        }
 	                lcd_cls(bcolor);    
 			        show_all_data(f_vfo[cur_vfo], f_vfo[alt_vfo], 1, sideband, 0, cur_vfo, 0, 0, 0, 0, last_memplace, txrx);
@@ -3882,7 +4004,6 @@ int main(void)
 		    
 		    show_msg("", bcolor);
 		    show_msg("(K1) Menu (K3) Xtra func", bcolor);
-		    
 		}
 		
 		//Measure voltage every 5 secs
@@ -3944,14 +4065,191 @@ int main(void)
 		    }
 		}   
 		
-		uchar = usart_receive();
-	    if(uchar > -1)
-	    {
-		    lcd_putchar(calcx(0), calcy(14), uchar, 1, YELLOW, DARK_BLUE1);
-	    }
-	}	
-	
-	
+		//Computer aided tuning (CAT)
+		//Fill buf1 string with incoming characters from usart
+		ch = usart_receive();
+		if(ch >= 97 && ch <= 122) //Convert lower case to upper case
+		{
+			ch &= ~0x20;
+		}	
+			
+		//lcd_putnumber(0, 50, ch, -1, 1, YELLOW, DARK_BLUE1);
+		if(ch >= 32 &&ch < 128)
+		{
+			if(cnt < MAXRXBUFLEN)
+			{
+		        buf1[cnt++] = ch;
+			    buf1[cnt] = 0;
+			}    
+		}	
+
+	    if(ch == 13) //Command complete
+		{
+			cnt = MAXRXBUFLEN;
+			show_msg(buf1, bcolor);
+			cnt = 0;
+
+            //Check if Command ist "SET" or "GET"
+            get_info_from_string(buf1, buf2, 0); 
+            if(!strcmp(buf1, "SET"))
+            {
+			    //Parse buffer string
+			    //Get 2nd Parameter of Message Code (Can be "BAND", "SIDEBAND" etc...
+		        get_info_from_string(buf1, buf2, 1); 
+			
+		        if(!strcmp(buf2, "BAND")) //Band change - e. g. "SET BAND 0"
+		        {
+			        get_info_from_string(buf1, buf3, 2); 
+			        tmp0 = asc2long(buf3);
+			        if((tmp0 >= 0) && (tmp0 < 6))
+			        {
+    				    cur_band = tmp0;
+				        set_band(cur_band, cur_vfo);
+			        }	
+		        }	
+			
+		        if(!strcmp(buf2, "SIDEBAND")) //Sideband change - e. g. "SET SIDEBAND 0"
+		        {
+			        get_info_from_string(buf1, buf3, 2); 
+			        tmp0 = asc2long(buf3);
+			        if((tmp0 >= 0) && (tmp0 <= 1))
+			        {
+    				    sideband = tmp0;
+				        set_frequency2(f_lo[sideband]);
+				        show_sideband(sideband, bcolor);
+			        }	
+		        }
+		    
+		        if(!strcmp(buf2, "VFO")) //VFO - e. g. "SET VFO 0"
+		        {
+    			    get_info_from_string(buf1, buf3, 2); 
+	    		    tmp0 = asc2long(buf3);
+		    	    if((tmp0 >= 0) && (tmp0 <= 1))
+			        {
+				        alt_vfo = cur_vfo;
+					    set_vfo(tmp0);
+					    cur_vfo = tmp0;
+			        }	
+		        }
+		    
+    		    if(!strcmp(buf2, "ATT")) //RX Attenuator - e. g. "SET ATT 0"
+	    	    {
+		    	    get_info_from_string(buf1, buf3, 2); 
+			        tmp0 = asc2long(buf3);
+			        if((tmp0 >= 0) && (tmp0 <= 1))
+			        {
+    				    curatt = tmp0;
+	    				show_att(curatt, bcolor);
+		    			set_att(curatt);
+			        }	
+		        }
+
+		        if(!strcmp(buf2, "TONE")) //TONE - e. g. "SET TONE 0" "..3"
+		        {
+			        get_info_from_string(buf1, buf3, 2); 
+			        tmp0 = asc2long(buf3);
+			        if((tmp0 >= 0) && (tmp0 <= 3))
+			        {
+			    	    curtone = tmp0;
+					    show_tone(curtone, bcolor);
+					    set_tone(curtone);
+			        }	
+		        }
+		    
+  		        if(!strcmp(buf2, "AGC")) //AGC - e. g. "SET AGC 0" "...3"
+		        {
+			        get_info_from_string(buf1, buf3, 2); 
+			        tmp0 = asc2long(buf3);
+			        if((tmp0 >= 0) && (tmp0 <= 3))
+			        {
+			    	    curagc = rval - 50;
+					    show_agc(curagc, bcolor);
+					    set_agc(curagc);
+			        }	
+		        }
+
+  		        if(!strcmp(buf2, "FREQ")) //QRG in respective band - e. g. "SET FREQ 14210000" "...3"
+		        {
+			        get_info_from_string(buf1, buf3, 2); 
+			        freq_temp0 = asc2long(buf3);
+			        if(is_mem_freq_ok(freq_temp0, cur_band))
+			        {
+                        f_vfo[cur_vfo] = freq_temp0;  
+		                set_frequency1(f_vfo[cur_vfo]);
+		    	        show_frequency1(f_vfo[cur_vfo], 0, bcolor);			    
+		    	    }	
+		    	    else
+		    	    {
+					    show_msg("Freq!", RED);
+					    lcd_putnumber(calcx(8), calcy(14), freq_temp0, -1, 1, LIGHT_RED, bcolor);
+					    _delay_ms(500);
+				    }	
+		        }
+		    }
+		    else
+		    {
+				get_info_from_string(buf1, buf2, 1); 
+			
+		        if(!strcmp(buf2, "VDD")) //Return voltage value "GET VDD"
+		        {
+					v1 = (double) get_adc(3) * 5 / 1024 * 5 * 10;
+					tmp0 = (int) v1;
+					int2asc(tmp0, -1, buf3, 12);
+					usart_sendstring(buf3);
+				}
+				
+   	            if(!strcmp(buf2, "TEMP")) //Return temperature value "GET TEMP"
+		        {
+					v1 = (double) (10.0 * ((2000.0 / (1024.0 / get_adc(2) - 1)) - 1630) / 17.62); 
+					tmp0 = (int) v1;
+					int2asc(tmp0, -1, buf3, 12);
+					usart_sendstring(buf3);
+				}
+				
+				if(!strcmp(buf2, "FREQ")) //Return current main frequency "GET FREQ"
+		        {
+					freq_temp0 = f_vfo[cur_vfo];
+					int2asc(freq_temp0, -1, buf3, 12);
+					usart_sendstring(buf3);
+				}
+				
+				if(!strcmp(buf2, "MEMALL")) //Return all memroies of all 6 bands "GET MEMALL"
+		        {
+					show_msg("Transmitting...", bcolor);
+					for(t1 = 0; t1 < 96; t1++)
+					{
+						freq_temp0 = load_frequency1(t1 * 4);
+					    int2asc(freq_temp0, -1, buf3, 12);
+					    usart_sendstring(buf3);
+					    usart_transmit(13);
+					    usart_transmit(10);
+					}   
+				}
+				
+				if(!strcmp(buf2, "MEM")) //Return ONE memory "GET MEM [band] [memory]: "GET MEM 1 5"
+		        {
+					get_info_from_string(buf1, buf3, 2); //band
+					tmp0 = asc2long(buf3);
+					get_info_from_string(buf1, buf3, 3); //mem number
+					tmp1 = asc2long(buf3);
+					
+					freq_temp0 = load_frequency1(tmp0 * 64 + tmp1 * 4);
+					int2asc(freq_temp0, -1, buf3, 12);
+					show_msg("Sending...", bcolor);
+					usart_sendstring(buf3);
+					usart_transmit(13);
+					usart_transmit(10);
+			    }
+			}		
+		    
+		    for(t1 = 0; t1 < 32; t1++) //Re-init buffers
+	        {
+	            buf1[t1] = 0;
+	            buf2[t1] = 0;
+	            buf3[t1] = 0;   
+	        }	
+		}   
+	}
 	return 0;
 }
 
