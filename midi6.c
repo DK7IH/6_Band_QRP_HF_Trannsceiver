@@ -147,8 +147,8 @@
 // 492, 493: TX preset 15m
 // 494, 495: TX preset 10m
 
-//512:515: f.Lo.LSB memplace=128
-//516:519: f.Lo.USB memplace=129
+//512:515: f.Lo.LSB 
+//516:519: f.Lo.USB
 
 //Scan edge frquencies
 /*
@@ -181,7 +181,7 @@
 #define FOSC 16000000// Clock Speed
 #define BAUD 2400
 #define UARTBAUDSET FOSC/16/BAUD-1
-#define MAXRXBUFLEN 32
+#define MAXRXBUFLEN 24
 
   ///////////////////
  //  LCD-Display  //
@@ -497,7 +497,8 @@ int get_ptt(void);
 int calc_tuningfactor(void);
 void tx_test(void);
 void tune(void);
-void set_dualtone_oscillator(int);
+void set_audio_tone_oscillator(int);
+void make_morse_char(char, int);
 
 //Graphics
 void drawbox(int, int, int, int, int);
@@ -572,6 +573,7 @@ void usart_init(int);
 int usart_receive(void);
 void usart_transmit(unsigned char);
 void usart_sendstring(char*);
+void usart_send_crlf(void);
 
   /////////////
  //Variables//
@@ -1935,7 +1937,7 @@ void set_vfo(int vfo)
 	show_frequency1(f_vfo[vfo], 1, bcolor);
 }
 
-void set_dualtone_oscillator(int state)
+void set_audio_tone_oscillator(int state)
 {
 	if(state)
 	{
@@ -2199,8 +2201,8 @@ void set_lo_freq(int sb)
 	if(key == 2)
 	{
 		f_lo[sb] = f; //Confirm
-		
-		store_frequency1(f, 128 + sb); //Save frequency to memplace 128 (LSB) or 129 (USB)
+		store_frequency1(f, 512 + sb * 4); //Save frequency to memplace 512 (LSB) or 516 (USB)
+		show_msg("New LO freq stored.", bcolor);
 	}	
 	else
 	{
@@ -3050,7 +3052,7 @@ void tune(void)
 	int key = 0;
 	
 	PORTA |= 8; //TX on
-	set_dualtone_oscillator(1);
+	set_audio_tone_oscillator(1);
 	show_txrx(1);
 	
 	while(!key)
@@ -3059,7 +3061,7 @@ void tune(void)
 	}
 		
 	PORTA &= ~(8); //TX off
-	set_dualtone_oscillator(0);
+	set_audio_tone_oscillator(0);
 	show_txrx(0);    
 }		
 	
@@ -3424,10 +3426,116 @@ void usart_sendstring(char *s)
 		usart_transmit(s[t1++]);
 	}
 }		
+
+void usart_send_crlf(void)
+{
+	usart_transmit(13);
+	usart_transmit(10);
+}	
+
+  ///////////////////////////
+ ///// CW - Generator  /////
+///////////////////////////
+void make_morse_char(char ltr, int delaytime)
+{
+	char x, n, ch;
+	int t1, t2;
+	
+	ch = ltr;
+	if(ch >= 97 && ch <= 122) //Convert lower case to upper case
+	{
+		ch &= ~0x20;
+	}	
+	
+    switch(ch)
+    {
+		case('E'): x = 1; n = 1; break;
+		case('T'): x = 0; n = 1; break;
+		           
+		case('A'): x = 2; n = 2; break;          
+		case('I'): x = 3; n = 2; break;           
+		case('M'): x = 0; n = 2; break;           
+		case('N'): x = 1; n = 2; break;          
+		  
+		case('D'): x = 3; n = 3; break;
+		case('G'): x = 1; n = 3; break;                      
+		case('K'): x = 2; n = 3; break;           
+		case('O'): x = 0; n = 3; break;           
+		case('R'): x = 5; n = 3; break;           
+		case('S'): x = 7; n = 3; break;           
+		case('U'): x = 6; n = 3; break;           
+		case('W'): x = 4; n = 3; break;           
+		           
+		case('B'): x = 7; n = 4; break;
+		case('C'): x = 5; n = 4; break;
+		case('F'): x = 13; n = 4; break;           
+		case('H'): x = 15; n = 4; break;           
+		case('J'): x = 8; n = 4; break;          
+		case('L'): x = 11; n = 4; break;           
+		case('P'): x = 9; n = 4; break;                     
+		case('Q'): x = 2; n = 4; break;          
+		case('V'): x = 14; n = 4; break;           
+		case('X'): x = 6; n = 4; break;          
+		case('Y'): x = 4; n = 4; break;          
+		case('Z'): x = 3; n = 4; break;          
+		          
+		case('1'): x = 16; n = 5; break;                  
+		case('2'): x = 24; n = 5; break;                             
+		case('3'): x = 28; n = 5; break;                            
+		case('4'): x = 30; n = 5; break;                             
+		case('5'): x = 31; n = 5; break;                             
+		case('6'): x = 15; n = 5; break;                             
+		case('7'): x = 7;  n = 5; break;                                       
+		case('8'): x = 3;  n = 5; break;                            
+		case('9'): x = 1;  n = 5; break;                            
+		case('0'): x = 0;  n = 5; break;                            
+		case('/'): x = 13; n = 5; break;  //-..-.
+		           
+		case('.'): x = 42; n = 6; break; //.-.-.-                    
+		case(','): x = 15; n = 6; break;  //..-..         
+		case('?'): x = 51; n = 6; break;  //..--..         
+		case(';'): x = 10; n = 6; break;  // -.-.-         
+		case('-'): x = 30; n = 6; break;  //-....-   
+		   
+		default: x = 0; n = 0;           
+	}	           
+    
+    for(t1 = n - 1; t1 >= 0; t1--)
+    {
+        set_audio_tone_oscillator(1);
+		
+		if(x & (1 << t1))
+		{
+			for(t2 = 0; t2 < delaytime; t2++) //DOT
+			{
+			    _delay_ms(10); 
+			}    
+		}
+		else	
+		{
+			for(t2 = 0; t2 < delaytime * 3; t2++) //DAH
+			{
+			    _delay_ms(10); 
+			}    
+			
+		}
+		
+		set_audio_tone_oscillator(0);
+		
+		for(t2 = 0; t2 < delaytime; t2++) //Break (1 DIT time)
+	    {
+	        _delay_ms(10); 
+	    }    
+	}	
+	
+	
+   
+}    	 
+ 
 	
 int main(void)
 {
-	int t1;
+	int t1, t2;
     int tmp0, tmp1;
     	
 	curagc = 1;
@@ -3440,15 +3548,16 @@ int main(void)
 	long runseconds10s = 0;     //Ms counter for displaying S-Value 
 	long runseconds10speak = 0; //Ms counter for resetting peak value of S-Meter
 	long runseconds10msg = 0;   //Ms for holding message displayed
-	long runseconds10volts = 0; //Ms for volatge check
+	long runseconds10volts = 0; //Ms for voltage check
 	
 	int sval = 0;
 	int cur_vfo = 0, alt_vfo = 1;
 	
 	//CAT interface
-	char *buf1, *buf2, *buf3;
+	char *buf1, *buf2, *buf3, *buf4;
 	char ch;
 	int cnt = 0;
+	int cwdelay = 8;
 	
 	double v1;
 	
@@ -3595,6 +3704,31 @@ int main(void)
 		last_memplace = 0;
 	}
 	
+	//Load LO frequencies if available
+    for(t1 = 0; t1 < 2; t1++)
+    {
+		f_lo[t1] = load_frequency1(512 + t1 * 4);
+		if((f_lo[t1] < F_LO_LSB - 4000) || (f_lo[t1] > F_LO_USB + 4000))
+		{
+			if(!t1)
+			{
+			    f_lo[t1] = F_LO_LSB;
+			}   
+			else
+			{
+			    f_lo[t1] = F_LO_USB;
+			}   
+		}
+	}		
+			
+    for(t1 = 0; t1 < 5; t1++)
+    {
+		set_frequency1(f_vfo[cur_vfo]);
+		set_frequency2(f_lo[sideband]);
+        _delay_ms(10);
+    }
+
+	
 	//Load scan threshold
     s_threshold = eeprom_read_byte((uint8_t*)129);          	
     if(s_threshold < 0 || s_threshold > 255)
@@ -3655,39 +3789,18 @@ int main(void)
     buf1 = malloc(MAXRXBUFLEN);
     buf2 = malloc(MAXRXBUFLEN);
     buf3 = malloc(MAXRXBUFLEN);
+    buf4 = malloc(MAXRXBUFLEN);
     
-    for(t1 = 0; t1 < 32; t1++) //Init buffers
+    for(t1 = 0; t1 < MAXRXBUFLEN; t1++) //Init buffers
 	{
 	    buf1[t1] = 0;
 	    buf2[t1] = 0;
 	    buf3[t1] = 0;
+	    buf4[t1] = 0;   
 	}	
 	/////////////////////////////////////////////
 	
-	//Load LO frequencies if available
-    for(t1 = 0; t1 < 2; t1++)
-    {
-		f_lo[t1] = load_frequency1(t1 + 128);
-		if((f_lo[t1] < F_LO_LSB - 2000) || (f_lo[t1] > F_LO_USB + 2000))
-		{
-			if(!t1)
-			{
-			    f_lo[t1] = F_LO_LSB;
-			}   
-			else
-			{
-			    f_lo[t1] = F_LO_USB;
-			}   
-		}
-	}		
-			
-    for(t1 = 0; t1 < 5; t1++)
-    {
-		set_frequency1(f_vfo[cur_vfo]);
-		set_frequency2(f_lo[sideband]);
-        _delay_ms(10);
-    }
-
+	//baCKLIGHT
     blight = eeprom_read_byte((uint8_t*)482);
     if(blight < 0 || blight > 255)
     {
@@ -3941,6 +4054,7 @@ int main(void)
 			        while(get_keys());
 			        show_msg("Frequency data saved.", bcolor);
 			        runseconds10msg = runseconds10;
+			        usart_transmit('.');
 			        break;
 			        
 			case 3: while(get_keys());
@@ -3993,7 +4107,6 @@ int main(void)
 		{
 			reset_smax();
 			runseconds10speak = runseconds10;				
-			usart_transmit('.');
 		}
 		
 		//Show temperature and clear message line after 10 seconds
@@ -4036,7 +4149,7 @@ int main(void)
 			    	        show_frequency1(f_vfo[cur_vfo], 0, bcolor);        
 			    }        
 			    
-			    PORTA |= 8; //TX on
+			    PORTA |= (1 << 3); //TX on
 			}   
 	    }
 	    else
@@ -4061,7 +4174,7 @@ int main(void)
 				            show_frequency1(f_vfo[cur_vfo], 0, bcolor);        
 			    }        
 			    
-			    PORTA &= ~(8); 		//TX off    
+			    PORTA &= ~(1 << 3); 		//TX off    
 		    }
 		}   
 		
@@ -4091,13 +4204,15 @@ int main(void)
 
             //Check if Command ist "SET" or "GET"
             get_info_from_string(buf1, buf2, 0); 
-            if(!strcmp(buf1, "SET"))
+            if(!strcmp(buf2, "SET"))
             {
+				show_msg("", bcolor);
+				
 			    //Parse buffer string
 			    //Get 2nd Parameter of Message Code (Can be "BAND", "SIDEBAND" etc...
 		        get_info_from_string(buf1, buf2, 1); 
 			
-		        if(!strcmp(buf2, "BAND")) //Band change - e. g. "SET BAND 0"
+		        if(!strcmp(buf2, "BAND")) //Band change - |Example: "SET BAND 0"
 		        {
 			        get_info_from_string(buf1, buf3, 2); 
 			        tmp0 = asc2long(buf3);
@@ -4108,7 +4223,7 @@ int main(void)
 			        }	
 		        }	
 			
-		        if(!strcmp(buf2, "SIDEBAND")) //Sideband change - e. g. "SET SIDEBAND 0"
+		        if(!strcmp(buf2, "SIDEBAND")) //Sideband change - |Example: "SET SIDEBAND 0"
 		        {
 			        get_info_from_string(buf1, buf3, 2); 
 			        tmp0 = asc2long(buf3);
@@ -4120,7 +4235,7 @@ int main(void)
 			        }	
 		        }
 		    
-		        if(!strcmp(buf2, "VFO")) //VFO - e. g. "SET VFO 0"
+		        if(!strcmp(buf2, "VFO")) //VFO - |Example: "SET VFO 0"
 		        {
     			    get_info_from_string(buf1, buf3, 2); 
 	    		    tmp0 = asc2long(buf3);
@@ -4132,7 +4247,7 @@ int main(void)
 			        }	
 		        }
 		    
-    		    if(!strcmp(buf2, "ATT")) //RX Attenuator - e. g. "SET ATT 0"
+    		    if(!strcmp(buf2, "ATT")) //RX Attenuator - |Example: "SET ATT 0"
 	    	    {
 		    	    get_info_from_string(buf1, buf3, 2); 
 			        tmp0 = asc2long(buf3);
@@ -4144,7 +4259,7 @@ int main(void)
 			        }	
 		        }
 
-		        if(!strcmp(buf2, "TONE")) //TONE - e. g. "SET TONE 0" "..3"
+		        if(!strcmp(buf2, "TONE")) //TONE - |Example: "SET TONE 0" "..3"
 		        {
 			        get_info_from_string(buf1, buf3, 2); 
 			        tmp0 = asc2long(buf3);
@@ -4156,7 +4271,7 @@ int main(void)
 			        }	
 		        }
 		    
-  		        if(!strcmp(buf2, "AGC")) //AGC - e. g. "SET AGC 0" "...3"
+  		        if(!strcmp(buf2, "AGC")) //AGC - |Example: "SET AGC 0" "...3"
 		        {
 			        get_info_from_string(buf1, buf3, 2); 
 			        tmp0 = asc2long(buf3);
@@ -4168,7 +4283,7 @@ int main(void)
 			        }	
 		        }
 
-  		        if(!strcmp(buf2, "FREQ")) //QRG in respective band - e. g. "SET FREQ 14210000" "...3"
+  		        if(!strcmp(buf2, "FREQ")) //QRG in respective band - |Example: "SET FREQ 14210000" "...3"
 		        {
 			        get_info_from_string(buf1, buf3, 2); 
 			        freq_temp0 = asc2long(buf3);
@@ -4185,35 +4300,119 @@ int main(void)
 					    _delay_ms(500);
 				    }	
 		        }
+		        		        
+		        if(!strcmp(buf2, "MEM")) //Set ONE memory Syntax: SET MEM [band] [memory] {frequency] |Example: SET MEM 3 1 14325000"
+		        {
+					get_info_from_string(buf1, buf3, 2); //band
+					tmp0 = asc2long(buf3);
+					get_info_from_string(buf1, buf3, 3); //mem number
+					tmp1 = asc2long(buf3);
+					
+					get_info_from_string(buf1, buf4, 4); //frequency
+					freq_temp0 = asc2long(buf4);
+					store_frequency1(freq_temp0, tmp0 * 64 + tmp1 * 4);
+					show_msg("Freq stored: ", bcolor);
+					//lcd_putstring(calcx(0), calcy(12), buf4, 1, YELLOW, bcolor);
+					lcd_putnumber(calcx(12), calcy(14), freq_temp0, -1, 1, YELLOW, bcolor);
+			    }
+			    			    
+			    if(!strcmp(buf2, "LOSC")) //Setting LO freq "SET LO [sideband] [freq] |Example: "SET LO 0 8998500"
+		        {
+					get_info_from_string(buf1, buf3, 2); //LO 0 or 1 (LSB/USB)
+					tmp0 = asc2long(buf3);
+					get_info_from_string(buf1, buf4, 3);
+					freq_temp0 = asc2long(buf4);
+					store_frequency1(freq_temp0, 512 + tmp0 * 4);
+					f_lo[tmp0] = freq_temp0;
+                    set_frequency2(freq_temp0);					
+					lcd_putnumber(calcx(13), calcy(14), tmp0, -1, 1, YELLOW, bcolor);
+					lcd_putnumber(calcx(15), calcy(14), freq_temp0, -1, 1, YELLOW, bcolor);
+					show_msg("LO data set:.", bcolor);
+				}
+				 	
+				if(!strcmp(buf2, "EEPROM")) //Set EEPROM byte "SET EEPROM [byte] [value]]: |Example: "SET EEPROM 127 65"
+		        {
+					get_info_from_string(buf1, buf3, 2); //EEPROM cell
+					tmp0 = asc2long(buf3);
+					get_info_from_string(buf1, buf4, 3); //Value to be set
+					tmp1 = asc2long(buf4);
+					eeprom_write_byte((uint8_t*)tmp0, tmp1);
+					show_msg("OK. (EEPROM)", bcolor); 
+			    }
+			    
+			    if(!strcmp(buf2, "PTT")) //Switch TX on/off |Example: SET PTT 1
+			    {
+		    	    get_info_from_string(buf1, buf3, 2); 
+			        tmp0 = asc2long(buf3);
+			        if(tmp0 == 1)
+			        {
+    				     PORTA |= (1 << 3); //TX on
+			        }	
+			        else
+			        {
+    				     PORTA &= ~(1 << 3); //TX off
+			        }	
+		        }
+		        
+		        if(!strcmp(buf2, "SEND")) //Send MORSE Code Message - |Example: "SET CWOUT DK7IH"
+		        {
+			        get_info_from_string(buf1, buf3, 2); 
+			        tmp0 = 0;
+			        PORTA |= (1 << 3); //TX on
+			        for(t1 = 0; t1 < strlen(buf3); t1++)
+			        {
+						make_morse_char(buf3[t1], cwdelay);
+						for(t2 = 0; t2 < cwdelay * 3; t2++) //Break (1 DOT time)
+	                    {
+					        _delay_ms(10); 
+	                    }    
+					}	
+					PORTA &= ~(1 << 3); //TX off
+		        }
+		        		        
+		        if(!strcmp(buf2, "DELAY")) //Delay for CW transmission - |Example: "SET DELAY 5"
+		        {
+			        get_info_from_string(buf1, buf3, 2); 
+			        tmp0 = asc2long(buf3);
+			        cwdelay = tmp0;
+		        }
 		    }
-		    else
-		    {
+		    
+		    if(!strcmp(buf2, "GET"))
+            {
 				get_info_from_string(buf1, buf2, 1); 
 			
-		        if(!strcmp(buf2, "VDD")) //Return voltage value "GET VDD"
+		        if(!strcmp(buf2, "VDD")) //Return voltage value |Example: "GET VDD"
 		        {
 					v1 = (double) get_adc(3) * 5 / 1024 * 5 * 10;
 					tmp0 = (int) v1;
 					int2asc(tmp0, -1, buf3, 12);
 					usart_sendstring(buf3);
+					usart_send_crlf();
+					show_msg("OK. (VDD)", bcolor);
 				}
 				
-   	            if(!strcmp(buf2, "TEMP")) //Return temperature value "GET TEMP"
+   	            if(!strcmp(buf2, "TEMP")) //Return temperature value |Example:"GET TEMP"
 		        {
 					v1 = (double) (10.0 * ((2000.0 / (1024.0 / get_adc(2) - 1)) - 1630) / 17.62); 
 					tmp0 = (int) v1;
 					int2asc(tmp0, -1, buf3, 12);
 					usart_sendstring(buf3);
+					usart_send_crlf();
+					show_msg("OK. (TEMP)", bcolor);
 				}
 				
-				if(!strcmp(buf2, "FREQ")) //Return current main frequency "GET FREQ"
+				if(!strcmp(buf2, "FREQ")) //Return current main frequency |Example:"GET FREQ"
 		        {
 					freq_temp0 = f_vfo[cur_vfo];
 					int2asc(freq_temp0, -1, buf3, 12);
 					usart_sendstring(buf3);
+					usart_send_crlf();
+					show_msg("OK. (FREQ)", bcolor);
 				}
 				
-				if(!strcmp(buf2, "MEMALL")) //Return all memroies of all 6 bands "GET MEMALL"
+				
+				if(!strcmp(buf2, "MEMALL")) //Return all memroies of all 6 bands |Example: "GET MEMALL"
 		        {
 					show_msg("Transmitting...", bcolor);
 					for(t1 = 0; t1 < 96; t1++)
@@ -4221,12 +4420,13 @@ int main(void)
 						freq_temp0 = load_frequency1(t1 * 4);
 					    int2asc(freq_temp0, -1, buf3, 12);
 					    usart_sendstring(buf3);
-					    usart_transmit(13);
-					    usart_transmit(10);
+					    usart_send_crlf();
 					}   
+					show_msg("OK. (MEMALL)", bcolor);
 				}
 				
-				if(!strcmp(buf2, "MEM")) //Return ONE memory "GET MEM [band] [memory]: "GET MEM 1 5"
+				
+				if(!strcmp(buf2, "MEM")) //Return ONE memory "GET MEM [band] [memory]: |Example: "GET MEM 1 5"
 		        {
 					get_info_from_string(buf1, buf3, 2); //band
 					tmp0 = asc2long(buf3);
@@ -4234,22 +4434,203 @@ int main(void)
 					tmp1 = asc2long(buf3);
 					
 					freq_temp0 = load_frequency1(tmp0 * 64 + tmp1 * 4);
-					int2asc(freq_temp0, -1, buf3, 12);
-					show_msg("Sending...", bcolor);
+					int2asc(freq_temp0, -1, buf4, 12);
+					usart_sendstring(buf4);
+					usart_send_crlf();
+					show_msg("OK. (MEM)", bcolor);
+			    }
+			    
+			    if(!strcmp(buf2, "AGC"))  //Return current AGC voltage |Example:"GET AGC"
+			    {
+					tmp0 = get_s_value();
+					int2asc(tmp0, -1, buf3, 12);
 					usart_sendstring(buf3);
-					usart_transmit(13);
-					usart_transmit(10);
+					usart_send_crlf();
+					show_msg("OK. (AGC)", bcolor);
+				}
+				
+				if(!strcmp(buf2, "LOSC")) //Return LO freq "GET LO [sideband]|Example: "GET LO 0"
+		        {
+					get_info_from_string(buf1, buf3, 2); //LO 0 or 1 (LSB/USB)
+					tmp0 = asc2long(buf3);
+					lcd_putnumber(0, 50, tmp0, -1, 1, YELLOW, bcolor);
+					freq_temp0 = load_frequency1(512 + tmp0 * 4);
+					int2asc(freq_temp0, -1, buf4, 16);
+					usart_sendstring(buf4);
+					usart_send_crlf();
+					show_msg("OK. (LOSC)", bcolor);
+			    }
+			    
+			    if(!strcmp(buf2, "EEPROM")) //Return EEPROM byte "GET EEPROM [byte] [memory]: |Example: "GET EEPROM 127"
+		        {
+					get_info_from_string(buf1, buf3, 2); //EEPROM cell
+					tmp0 = asc2long(buf3);
+					tmp1 = eeprom_read_byte((uint8_t*)tmp0);
+					int2asc(tmp1, -1, buf4, 12);
+					usart_sendstring(buf4);
+					usart_send_crlf();
+					show_msg("OK. (EEPROM)", bcolor);
 			    }
 			}		
 		    
-		    for(t1 = 0; t1 < 32; t1++) //Re-init buffers
+		    for(t1 = 0; t1 < MAXRXBUFLEN; t1++) //Re-init buffers
 	        {
 	            buf1[t1] = 0;
 	            buf2[t1] = 0;
 	            buf3[t1] = 0;   
+	            buf4[t1] = 0;   
 	        }	
 		}   
 	}
 	return 0;
 }
 
+//TEST ZONE
+/*
+ * 
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+void get_info_from_string(char*, char*, int);
+* 
+int main()
+{
+    char* ch1;
+    int t1;
+    
+    ch1 = malloc(20);
+    for(t1 = 0; t1 < 20; t1++)
+    {
+        ch1[t1] = 0;
+    }
+    get_info_from_string("GET LO 0", ch1, 1);
+    printf("*%s*\n", ch1);
+
+    return 0;
+}
+
+//Get data from Chr(32) separated string
+void get_info_from_string(char* istr, char *buf, int pos)
+{
+    int pos2 = 0;
+    int t1;
+    
+    //Find position 
+    for(t1 = 0; t1 < strlen(istr) && pos2 < pos; t1++)
+    {
+        if(istr[t1] == ' ')
+        {
+            pos2++;
+        }
+    }
+        
+    //Copy string to buffer
+    for(t1 = t1; t1 < strlen(istr); t1++)
+    {
+        if(istr[t1] != 32)
+        {
+            *buf++ = istr[t1];
+        }  
+        else
+        {
+            return;
+        }    
+    }
+}
+*/
+//. = 1
+//- = 0
+		
+        
+/*
+ 
+#include <stdio.h>
+
+void make_morse_char(char);
+
+int main()
+{
+    make_morse_char('A');
+
+    return 0;
+}
+
+
+void make_morse_char(char ltr)
+{
+	char x, n;
+	int t1;
+
+    switch(ltr)
+    {
+		case('E'): x = 1; n = 1; break;
+		case('T'): x = 0; n = 1; break;
+		           
+		case('A'): x = 2; n = 2; break;          
+		case('I'): x = 3; n = 2; break;           
+		case('M'): x = 0; n = 2; break;           
+		case('N'): x = 1; n = 2; break;          
+		  
+		case('D'): x = 3; n = 3; break;
+		case('G'): x = 1; n = 3; break;                      
+		case('K'): x = 2; n = 3; break;           
+		case('O'): x = 0; n = 3; break;           
+		case('R'): x = 5; n = 3; break;           
+		case('S'): x = 7; n = 3; break;           
+		case('U'): x = 6; n = 3; break;           
+		case('W'): x = 4; n = 3; break;           
+		           
+		case('B'): x = 7; n = 4; break;
+		case('C'): x = 5; n = 4; break;
+		case('F'): x = 13; n = 4; break;           
+		case('H'): x = 15; n = 4; break;           
+		case('J'): x = 8; n = 4; break;          
+		case('L'): x = 11; n = 4; break;           
+		case('P'): x = 9; n = 4; break;                     
+		case('Q'): x = 2; n = 4; break;          
+		case('V'): x = 14; n = 4; break;           
+		case('X'): x = 6; n = 4; break;          
+		case('Y'): x = 4; n = 4; break;          
+		case('Z'): x = 3; n = 4; break;          
+		          
+		case('1'): x = 16; n = 5; break;                  
+		case('2'): x = 24; n = 5; break;                             
+		case('3'): x = 28; n = 5; break;                            
+		case('4'): x = 30; n = 5; break;                             
+		case('5'): x = 31; n = 5; break;                             
+		case('6'): x = 15; n = 5; break;                             
+		case('7'): x = 7;  n = 5; break;                                       
+		case('8'): x = 3;  n = 5; break;                            
+		case('9'): x = 1;  n = 5; break;                            
+		case('0'): x = 0;  n = 5; break;                            
+		case('/'): x = 13; n = 5; break;  //-..-.
+		           
+		case('.'): x = 42; n = 6; break; //.-.-.-                    
+		case(','): x = 15; n = 6; break;  //..-..         
+		case('?'): x = 51; n = 6; break;  //..--..         
+		case(';'): x = 10; n = 6; break;  // -.-.-         
+		case('-'): x = 30; n = 6; break;  //-....-   
+		   
+		default: x = 0; n = 0;           
+	}	           
+    
+    for(t1 = n - 1; t1 >= 0; t1--)
+    {
+        
+		if(x & (1 << t1))
+		{
+			printf(".");
+		}
+		else	
+		{
+			printf("-");
+		}
+	}	
+   
+}    		
+
+
+
+
+*/
