@@ -465,7 +465,8 @@ void draw_meter_scale(int, int);
 void reset_smax(void);
 void smeter(int, int);
 void clear_smeter(int);
-void show_msg(char*, int);//STRING FUNCTIONS
+void show_msg(char*, int);
+//STRING FUNCTIONS
 int int2asc(long, int, char*, int);
 long asc2long(char*);
 void get_info_from_string(char*, char*, int);
@@ -498,7 +499,7 @@ int calc_tuningfactor(void);
 void tx_test(void);
 void tune(void);
 void set_audio_tone_oscillator(int);
-void make_morse_char(char, int);
+
 
 //Graphics
 void drawbox(int, int, int, int, int);
@@ -528,7 +529,7 @@ void set_att(int);
 
 //VFO, Band etc.
 void set_band(int, int);
-void set_vfo(int);
+int set_vfo(int);
 
 //BAcklight
 int adjustbacklight(void);
@@ -661,9 +662,9 @@ int tuningknob = 0;
 int tuningcount = 0;
 
 //Tone and AGC
-int curtone;
-int curagc;
-int curatt;
+int cur_tone;
+int cur_agc;
+int cur_att;
 
 //TX amplifier preset values
 int tx_preset[6] = {0, 0, 0, 0, 0, 0};
@@ -938,11 +939,11 @@ void show_all_data(long f0, long f1, int refresh, int s, int scan_s, int vfo, in
 	//show_split_freq(splt_freq, splt_invert);
 	
 	draw_meter_scale(mtr_scale, bcolor);
-	show_tone(curtone, bcolor);
-	show_agc(curagc, bcolor);
+	show_tone(cur_tone, bcolor);
+	show_agc(cur_agc, bcolor);
 	show_band(cur_band);
     show_txrx(tr);
-    show_att(curatt, bcolor);	
+    show_att(cur_att, bcolor);	
 	load_tx_preset(cur_band);
 	
 	draw_hor_line(0, LCD_WIDTH, 20, linecolor);
@@ -1051,8 +1052,9 @@ void show_frequency2(int x, int y, long f, int bc, int x10, int digits)
 
 void show_band(int b)
 {
-	int xpos = 0, ypos = 8;
 	char *bnd[] = {"160m", "80m ", "40m ", "20m ", "15m ", "10m"};
+	
+	int xpos = 0, ypos = 8;
 	int fc[] = {LIGHT_GREEN, LIGHT_BLUE, LIGHT_BROWN, YELLOW, LIGHT_GRAY, LIGHT_VIOLET};
 	lcd_putstring(calcx(xpos), calcy(ypos)- 5, bnd[b], 1, fc[b], bcolor);	
 }	
@@ -1836,6 +1838,9 @@ int get_s_value(void)
 ////////////////////////
 void set_tone(int tone_value)
 {
+	int t1;
+	char *buf;
+	
 	//Reset PG3 and PG4
 	PORTG &= ~(8);   //PG3 Lo
 	PORTG &= ~(16);  //PG4 Lo
@@ -1846,10 +1851,25 @@ void set_tone(int tone_value)
     while(!eeprom_is_ready());
     eeprom_write_byte((uint8_t*)480, tone_value);
     sei();
+    
+    buf = malloc(32);
+	for(t1 = 0; t1 < MAXRXBUFLEN; t1++) //Init buffer
+	{
+	    buf[t1] = 0;
+	}    
+	strcpy(buf, "TONE  ");
+	buf[5] = tone_value + 48;
+	buf[6] = 0;
+	usart_sendstring(buf);
+	usart_send_crlf();
+	free(buf);
 }
 
 void set_agc(int agc_value)
 {
+	int t1;
+	char *buf;
+	
 	//Reset PG0 and PG1
 	PORTG &= ~(1);  //PG0 Lo
 	PORTG &= ~(2);  //PG1 Lo
@@ -1860,11 +1880,24 @@ void set_agc(int agc_value)
     while(!eeprom_is_ready());
     eeprom_write_byte((uint8_t*)481, agc_value);
     sei();
+    
+    buf = malloc(32);
+	for(t1 = 0; t1 < MAXRXBUFLEN; t1++) //Init buffer
+	{
+	    buf[t1] = 0;
+	}    
+	strcpy(buf, "AGC  ");
+	buf[4] = agc_value + 48;
+	buf[5] = 0;
+	usart_sendstring(buf);
+	usart_send_crlf();
+	free(buf);
 }	
 
 void set_att(int att_value)
 {
-	//Reset PG3 and PG4
+	char *buf;
+	int t1;
 	
 	if(att_value)
 	{
@@ -1879,6 +1912,24 @@ void set_att(int att_value)
     while(!eeprom_is_ready());
     eeprom_write_byte((uint8_t*)483, att_value);
     sei();
+    
+    //Send new ATT set to UART
+	buf = malloc(32);
+	for(t1 = 0; t1 < MAXRXBUFLEN; t1++) //Init buffer
+	{
+	    buf[t1] = 0;
+	}    
+	if(!att_value)
+	{
+	    strcpy(buf, "ATT 0");
+	}
+	else    
+	{
+	    strcpy(buf, "ATT 1");
+	}
+	usart_sendstring(buf);
+	usart_send_crlf();
+	free(buf);
 }
 
 
@@ -1887,8 +1938,9 @@ void set_band(int band, int vfo)
 {
 	
 	int t1;
+	char *buf0, *buf1;
 	long freq_temp0;
-	
+		
 	//Load VFOs A and B with last stored frequencies
 	for(t1 = 0; t1 < 2; t1++)    
 	{
@@ -1923,18 +1975,59 @@ void set_band(int band, int vfo)
 	PORTA &= ~(0x02);  
 	PORTA &= ~(0x04);  
 	PORTA |= band + 1;
+	
+	//Send info to USART
+	buf0 = malloc(10);
+	buf1 = malloc(10);
+	for(t1 = 0; t1 < 8; t1++) //Init buffer
+	{
+	    buf0[t1] = 0;
+	    buf1[t1] = 0;
+	}    
+	strcpy(buf0, "BAND ");
+	int2asc(band, -1, buf1, 8);
+	strcat(buf0, buf1);
+	usart_sendstring(buf0);
+	usart_send_crlf();
+	free(buf0);
+	free(buf1);
+	
 }
 
 //Set new VFO
-void set_vfo(int vfo)
+int set_vfo(int vfo)
 {
-	if(!is_mem_freq_ok(f_vfo[vfo], cur_band))
+	int t1;
+	char *buf;
+	
+	if(!is_mem_freq_ok(f_vfo[vfo], cur_band)) //Invalid data
 	{
-	     f_vfo[vfo] = c_freq[cur_band];
+		 show_msg("Invalid data!", bcolor);
+	     return 0;
 	}	     
 	set_frequency1(f_vfo[vfo]);
 	set_frequency2(f_lo[sideband]);
 	show_frequency1(f_vfo[vfo], 1, bcolor);
+	show_vfo(vfo, bcolor);
+	//Send new VFO to UART
+	buf = malloc(32);
+	for(t1 = 0; t1 < MAXRXBUFLEN; t1++) //Init buffer
+	{
+	    buf[t1] = 0;
+	}    
+	
+	if(!vfo)
+	{
+	    strcpy(buf, "VFO A");
+	}
+	else    
+	{
+	    strcpy(buf, "VFO B");
+	}
+	usart_sendstring(buf);
+	usart_send_crlf();
+	free(buf);
+	return 1;
 }
 
 void set_audio_tone_oscillator(int state)
@@ -2701,7 +2794,7 @@ void print_menu_item_list(int m, int item)
 int navigate_thru_item_list(int m, int maxitems, int curitem, int cvfo, int cband)
 {
 	int menu_pos = curitem;
-	
+	int menu_pos_old = 0;
 	//print_menu_item_list(m, menu_pos, 1);     //Write current entry in REVERSE color
 	
 	int key = get_keys();
@@ -2739,26 +2832,30 @@ int navigate_thru_item_list(int m, int maxitems, int curitem, int cvfo, int cban
 		}	
 		
 		//Make settings audible
-		switch(m)
+		if(menu_pos != menu_pos_old)
 		{
-			case 0: break; //Band set: No preview available
-			case 1: set_frequency2(f_lo[menu_pos]);
-			        break; 
-			case 2: if(is_mem_freq_ok(f_vfo[menu_pos], cband))
-			        {
-				        set_frequency1(f_vfo[menu_pos]);
-				        lcd_putnumber(calcx(2), calcy(7), f_vfo[menu_pos] / 100, 1, 1, LIGHT_BLUE, bcolor);
+		    switch(m)
+		    {
+			    case 0: break; //Band set: No preview available
+			    case 1: set_frequency2(f_lo[menu_pos]);
+			            break; 
+			    case 2: if(is_mem_freq_ok(f_vfo[menu_pos], cband))
+			            {
+				            set_frequency1(f_vfo[menu_pos]);
+				            lcd_putnumber(calcx(2), calcy(7), f_vfo[menu_pos] / 100, 1, 1, LIGHT_BLUE, bcolor);
 				        //void lcd_putnumber(int x, int y, long num, int dec, int lsize, int fc, int bc)
-				    }    
-			        break; //VFO set: No preview available
-			case 3: set_att(menu_pos); //ATT     
-			        break;
-			case 4: set_tone(menu_pos); //Tone       
-			        break;
-			case 5: set_agc(menu_pos); //AGC
-			        break;
-			default: break;                
-		}	         
+				        }    
+			            break; //VFO set: No preview available
+			    case 3: set_att(menu_pos); //ATT     
+			            break;
+			    case 4: set_tone(menu_pos); //Tone       
+			            break;
+			    case 5: set_agc(menu_pos); //AGC
+			            break;
+			    default: break;                
+		    }	         
+		    menu_pos_old = menu_pos;
+		}    
 				
 		key = get_keys();
 	}
@@ -2904,14 +3001,14 @@ long menu1(int menu, long f, int c_vfo, int c_band)
 	    case 2: print_menu_item_list(menu, c_vfo);  //VFO
 	            result = navigate_thru_item_list(menu, menu_items[menu], c_vfo, c_vfo, c_band);
 	            break; 
-	    case 3: print_menu_item_list(menu, curatt);  //ATT
-	            result = navigate_thru_item_list(menu, menu_items[menu], curatt, c_vfo, c_band);
+	    case 3: print_menu_item_list(menu, cur_att);  //ATT
+	            result = navigate_thru_item_list(menu, menu_items[menu], cur_att, c_vfo, c_band);
 	            break;         
-	    case 4: print_menu_item_list(menu, curtone); //Tone
-	            result = navigate_thru_item_list(menu, menu_items[menu], curtone, c_vfo, c_band);
+	    case 4: print_menu_item_list(menu, cur_tone); //Tone
+	            result = navigate_thru_item_list(menu, menu_items[menu], cur_tone, c_vfo, c_band);
 	            break;
-	    case 5: print_menu_item_list(menu, curagc);  //AGC
-	            result = navigate_thru_item_list(menu, menu_items[menu], curagc, c_vfo, c_band);
+	    case 5: print_menu_item_list(menu, cur_agc);  //AGC
+	            result = navigate_thru_item_list(menu, menu_items[menu], cur_agc, c_vfo, c_band);
                 break;           
 	    default:print_menu_item_list(menu, 0);         //All other without preset value
 	            result = navigate_thru_item_list(menu, menu_items[menu], 0, c_vfo, c_band);
@@ -2928,7 +3025,7 @@ long menu1(int menu, long f, int c_vfo, int c_band)
 	{
 		//Restore old settings
 	    set_frequency2(f_lo[sideband]);
-	    set_att(curatt);
+	    set_att(cur_att);
 	    set_frequency1(f_vfo[c_vfo]);
 	    
 	    switch(result)
@@ -3296,7 +3393,6 @@ long set_scan_frequency(int fpos, long f0)
 	
 }
 
-//Scans 16 memories
 void set_scan_threshold(void)
 {
 	int xpos0 = 0;
@@ -3426,120 +3522,21 @@ void usart_sendstring(char *s)
 		usart_transmit(s[t1++]);
 	}
 }		
-
+ 
 void usart_send_crlf(void)
 {
 	usart_transmit(13);
 	usart_transmit(10);
 }	
 
-  ///////////////////////////
- ///// CW - Generator  /////
-///////////////////////////
-void make_morse_char(char ltr, int delaytime)
-{
-	char x, n, ch;
-	int t1, t2;
-	
-	ch = ltr;
-	if(ch >= 97 && ch <= 122) //Convert lower case to upper case
-	{
-		ch &= ~0x20;
-	}	
-	
-    switch(ch)
-    {
-		case('E'): x = 1; n = 1; break;
-		case('T'): x = 0; n = 1; break;
-		           
-		case('A'): x = 2; n = 2; break;          
-		case('I'): x = 3; n = 2; break;           
-		case('M'): x = 0; n = 2; break;           
-		case('N'): x = 1; n = 2; break;          
-		  
-		case('D'): x = 3; n = 3; break;
-		case('G'): x = 1; n = 3; break;                      
-		case('K'): x = 2; n = 3; break;           
-		case('O'): x = 0; n = 3; break;           
-		case('R'): x = 5; n = 3; break;           
-		case('S'): x = 7; n = 3; break;           
-		case('U'): x = 6; n = 3; break;           
-		case('W'): x = 4; n = 3; break;           
-		           
-		case('B'): x = 7; n = 4; break;
-		case('C'): x = 5; n = 4; break;
-		case('F'): x = 13; n = 4; break;           
-		case('H'): x = 15; n = 4; break;           
-		case('J'): x = 8; n = 4; break;          
-		case('L'): x = 11; n = 4; break;           
-		case('P'): x = 9; n = 4; break;                     
-		case('Q'): x = 2; n = 4; break;          
-		case('V'): x = 14; n = 4; break;           
-		case('X'): x = 6; n = 4; break;          
-		case('Y'): x = 4; n = 4; break;          
-		case('Z'): x = 3; n = 4; break;          
-		          
-		case('1'): x = 16; n = 5; break;                  
-		case('2'): x = 24; n = 5; break;                             
-		case('3'): x = 28; n = 5; break;                            
-		case('4'): x = 30; n = 5; break;                             
-		case('5'): x = 31; n = 5; break;                             
-		case('6'): x = 15; n = 5; break;                             
-		case('7'): x = 7;  n = 5; break;                                       
-		case('8'): x = 3;  n = 5; break;                            
-		case('9'): x = 1;  n = 5; break;                            
-		case('0'): x = 0;  n = 5; break;                            
-		case('/'): x = 13; n = 5; break;  //-..-.
-		           
-		case('.'): x = 42; n = 6; break; //.-.-.-                    
-		case(','): x = 15; n = 6; break;  //..-..         
-		case('?'): x = 51; n = 6; break;  //..--..         
-		case(';'): x = 10; n = 6; break;  // -.-.-         
-		case('-'): x = 30; n = 6; break;  //-....-   
-		   
-		default: x = 0; n = 0;           
-	}	           
-    
-    for(t1 = n - 1; t1 >= 0; t1--)
-    {
-        set_audio_tone_oscillator(1);
-		
-		if(x & (1 << t1))
-		{
-			for(t2 = 0; t2 < delaytime; t2++) //DOT
-			{
-			    _delay_ms(10); 
-			}    
-		}
-		else	
-		{
-			for(t2 = 0; t2 < delaytime * 3; t2++) //DAH
-			{
-			    _delay_ms(10); 
-			}    
-			
-		}
-		
-		set_audio_tone_oscillator(0);
-		
-		for(t2 = 0; t2 < delaytime; t2++) //Break (1 DIT time)
-	    {
-	        _delay_ms(10); 
-	    }    
-	}	
-	
-	
-   
-}    	 
- 
 	
 int main(void)
 {
-	int t1, t2;
+	int t1;
     int tmp0, tmp1;
     	
-	curagc = 1;
-	curtone = 1;
+	cur_agc = 1;
+	cur_tone = 1;
 	int key;
 	long rval = 0;
 	
@@ -3557,8 +3554,7 @@ int main(void)
 	char *buf1, *buf2, *buf3, *buf4;
 	char ch;
 	int cnt = 0;
-	int cwdelay = 8;
-	
+		
 	double v1;
 	
 	long freq_temp0 = 0;      
@@ -3620,15 +3616,6 @@ int main(void)
     _delay_ms(100); 
 	DDS1_PORT |= (DDS1_RESETPIN);     
          
-    //Start DDS2
-    /*
-    DDS2_PORT &= ~(DDS2_RESETPIN);  //Bit erase   
-    _delay_ms(100);       //wait for > 20ns i. e. 1ms minimum time with _delay_s()
-    DDS2_PORT |= (DDS2_RESETPIN);       //Bit set
-    _delay_ms(100);       //wait for > 20ns i. e. 1ms minimum time with _delay_s()
-	DDS2_PORT &= ~(DDS2_RESETPIN);  //Bit erase   
-	*/
-	     
 	//Display init
 	LCDCTRLPORT |= LCDRES;     //1
     _delay_ms(5);
@@ -3760,28 +3747,28 @@ int main(void)
 	//Load sets
 	// 480: TONE set
     // 481: AGC set
-	curtone = eeprom_read_byte((uint8_t*)480);
-	if(curtone < 0 ||curtone > 3)
+	cur_tone = eeprom_read_byte((uint8_t*)480);
+	if(cur_tone < 0 ||cur_tone > 3)
 	{
-		curtone = 1;
+		cur_tone = 1;
 	}	
-	show_tone(curtone, bcolor);
-	set_tone(curtone);
+	show_tone(cur_tone, bcolor);
+	set_tone(cur_tone);
 	
-	curagc = eeprom_read_byte((uint8_t*)481);
-	if(curagc < 0 || curagc > 3)
+	cur_agc = eeprom_read_byte((uint8_t*)481);
+	if(cur_agc < 0 || cur_agc > 3)
 	{
-		curagc = 2;
+		cur_agc = 2;
 	}
-	show_agc(curagc, bcolor);
-	set_agc(curagc);
+	show_agc(cur_agc, bcolor);
+	set_agc(cur_agc);
 	
-	curatt = eeprom_read_byte((uint8_t*)483);
-    if(curatt < 0 || curatt > 1)
+	cur_att = eeprom_read_byte((uint8_t*)483);
+    if(cur_att < 0 || cur_att > 1)
     {
-		curatt = 0;
+		cur_att = 0;
 	}	
-    set_att(curatt);
+    set_att(cur_att);
     
     show_all_data(f_vfo[cur_vfo], f_vfo[alt_vfo], 0, sideband, 0, cur_vfo, 0, 0, 0, 0, last_memplace, txrx);
     
@@ -3870,7 +3857,11 @@ int main(void)
 			        if(rval == 20 || rval == 21) //VFO A or VFO B set
 			        {
 						alt_vfo = cur_vfo;
-						set_vfo(rval - 20);
+						cur_vfo = rval - 20;
+						if(!set_vfo(rval - 20))
+						{
+							cur_vfo = alt_vfo;
+						}	
 				    }    
 			        
 			        if(rval == 22)
@@ -3886,23 +3877,23 @@ int main(void)
 				    //ATT, TONE and AGC
 				    if(rval >= 30 && rval <= 32)
 				    {
-						curatt = rval - 30;
-						show_att(curatt, bcolor);
-						set_att(curatt);
+						cur_att = rval - 30;
+						show_att(cur_att, bcolor);
+						set_att(cur_att);
 					}
 					
 				    if(rval >= 40 && rval <= 44)
 				    {
-						curtone = rval - 40;
-						show_tone(curtone, bcolor);
-						set_tone(curtone);
+						cur_tone = rval - 40;
+						show_tone(cur_tone, bcolor);
+						set_tone(cur_tone);
 					}
 					
 					if(rval >= 50 && rval <= 54)
 				    {
-						curagc = rval - 50;
-						show_agc(curagc, bcolor);
-						set_agc(curagc);
+						cur_agc = rval - 50;
+						show_agc(cur_agc, bcolor);
+						set_agc(cur_agc);
 					}
 						
 				    /////////////////////
@@ -4054,7 +4045,7 @@ int main(void)
 			        while(get_keys());
 			        show_msg("Frequency data saved.", bcolor);
 			        runseconds10msg = runseconds10;
-			        usart_transmit('.');
+			        usart_sendstring("DK7IH QRP MINI6 COMM OK.");
 			        break;
 			        
 			case 3: while(get_keys());
@@ -4087,8 +4078,8 @@ int main(void)
 		}	            
 		
 		//METER
-		//After 1/10th sec check S-Val resp. PWR value
-		if(runseconds10 > runseconds10s)
+		//After 1/5th sec check S-Val resp. PWR value
+		if(runseconds10 > runseconds10s + 1)
 		{
 			if(!txrx)
 		 	{   sval = get_s_value();
@@ -4253,9 +4244,9 @@ int main(void)
 			        tmp0 = asc2long(buf3);
 			        if((tmp0 >= 0) && (tmp0 <= 1))
 			        {
-    				    curatt = tmp0;
-	    				show_att(curatt, bcolor);
-		    			set_att(curatt);
+    				    cur_att = tmp0;
+	    				show_att(cur_att, bcolor);
+		    			set_att(cur_att);
 			        }	
 		        }
 
@@ -4265,21 +4256,21 @@ int main(void)
 			        tmp0 = asc2long(buf3);
 			        if((tmp0 >= 0) && (tmp0 <= 3))
 			        {
-			    	    curtone = tmp0;
-					    show_tone(curtone, bcolor);
-					    set_tone(curtone);
+			    	    cur_tone = tmp0;
+					    show_tone(cur_tone, bcolor);
+					    set_tone(cur_tone);
 			        }	
 		        }
 		    
-  		        if(!strcmp(buf2, "AGC")) //AGC - |Example: "SET AGC 0" "...3"
+  		        if(!strcmp(buf2, "AGCS")) //AGC - |Example: "SET AGC 0" "...3"
 		        {
 			        get_info_from_string(buf1, buf3, 2); 
 			        tmp0 = asc2long(buf3);
 			        if((tmp0 >= 0) && (tmp0 <= 3))
 			        {
-			    	    curagc = rval - 50;
-					    show_agc(curagc, bcolor);
-					    set_agc(curagc);
+			    	    cur_agc = tmp0;
+					    show_agc(cur_agc, bcolor);
+					    set_agc(cur_agc);
 			        }	
 		        }
 
@@ -4353,35 +4344,47 @@ int main(void)
     				     PORTA &= ~(1 << 3); //TX off
 			        }	
 		        }
-		        
-		        if(!strcmp(buf2, "SEND")) //Send MORSE Code Message - |Example: "SET CWOUT DK7IH"
-		        {
-			        get_info_from_string(buf1, buf3, 2); 
-			        tmp0 = 0;
-			        PORTA |= (1 << 3); //TX on
-			        for(t1 = 0; t1 < strlen(buf3); t1++)
-			        {
-						make_morse_char(buf3[t1], cwdelay);
-						for(t2 = 0; t2 < cwdelay * 3; t2++) //Break (1 DOT time)
-	                    {
-					        _delay_ms(10); 
-	                    }    
-					}	
-					PORTA &= ~(1 << 3); //TX off
-		        }
-		        		        
-		        if(!strcmp(buf2, "DELAY")) //Delay for CW transmission - |Example: "SET DELAY 5"
-		        {
-			        get_info_from_string(buf1, buf3, 2); 
-			        tmp0 = asc2long(buf3);
-			        cwdelay = tmp0;
-		        }
 		    }
 		    
 		    if(!strcmp(buf2, "GET"))
             {
 				get_info_from_string(buf1, buf2, 1); 
+				
+				if(!strcmp(buf2, "BAND")) //Return current band |Example: "GET BAND"
+		        {
+					int2asc(cur_band, -1, buf3, MAXRXBUFLEN);
+					usart_sendstring(buf3);
+					usart_send_crlf();
+					show_msg("BAND.", bcolor);
+				}
+						    
+				if(!strcmp(buf2, "VFO")) //Return current band |Example: "GET BAND"
+		        {
+					int2asc(cur_vfo, -1, buf3, MAXRXBUFLEN);
+					usart_sendstring(buf3);
+					usart_send_crlf();
+					show_msg("VFO.", bcolor);
+				}
+
+				
+				if(!strcmp(buf2, "FREQ")) //Return current main frequency |Example:"GET FREQ"
+		        {
+					freq_temp0 = f_vfo[cur_vfo];
+					int2asc(freq_temp0, -1, buf3, 12);
+					usart_sendstring(buf3);
+					usart_send_crlf();
+					show_msg("FREQ.", bcolor);
+				}
+				
+				if(!strcmp(buf2, "SIDEBAND")) //Return current band |Example: "GET BAND"
+		        {
+					int2asc(sideband, -1, buf3, MAXRXBUFLEN);
+					usart_sendstring(buf3);
+					usart_send_crlf();
+					show_msg("SIDEBAND.", bcolor);
+				}
 			
+				
 		        if(!strcmp(buf2, "VDD")) //Return voltage value |Example: "GET VDD"
 		        {
 					v1 = (double) get_adc(3) * 5 / 1024 * 5 * 10;
@@ -4389,7 +4392,7 @@ int main(void)
 					int2asc(tmp0, -1, buf3, 12);
 					usart_sendstring(buf3);
 					usart_send_crlf();
-					show_msg("OK. (VDD)", bcolor);
+					show_msg("VDD.", bcolor);
 				}
 				
    	            if(!strcmp(buf2, "TEMP")) //Return temperature value |Example:"GET TEMP"
@@ -4399,19 +4402,9 @@ int main(void)
 					int2asc(tmp0, -1, buf3, 12);
 					usart_sendstring(buf3);
 					usart_send_crlf();
-					show_msg("OK. (TEMP)", bcolor);
+					show_msg("TEMP.", bcolor);
 				}
-				
-				if(!strcmp(buf2, "FREQ")) //Return current main frequency |Example:"GET FREQ"
-		        {
-					freq_temp0 = f_vfo[cur_vfo];
-					int2asc(freq_temp0, -1, buf3, 12);
-					usart_sendstring(buf3);
-					usart_send_crlf();
-					show_msg("OK. (FREQ)", bcolor);
-				}
-				
-				
+			
 				if(!strcmp(buf2, "MEMALL")) //Return all memroies of all 6 bands |Example: "GET MEMALL"
 		        {
 					show_msg("Transmitting...", bcolor);
@@ -4422,10 +4415,9 @@ int main(void)
 					    usart_sendstring(buf3);
 					    usart_send_crlf();
 					}   
-					show_msg("OK. (MEMALL)", bcolor);
+					show_msg("MEMALL.", bcolor);
 				}
-				
-				
+								
 				if(!strcmp(buf2, "MEM")) //Return ONE memory "GET MEM [band] [memory]: |Example: "GET MEM 1 5"
 		        {
 					get_info_from_string(buf1, buf3, 2); //band
@@ -4437,16 +4429,40 @@ int main(void)
 					int2asc(freq_temp0, -1, buf4, 12);
 					usart_sendstring(buf4);
 					usart_send_crlf();
-					show_msg("OK. (MEM)", bcolor);
+					show_msg("MEM.", bcolor);
 			    }
 			    
-			    if(!strcmp(buf2, "AGC"))  //Return current AGC voltage |Example:"GET AGC"
+			    if(!strcmp(buf2, "AGCV"))  //Return current AGC voltage |Example:"GET AGCV"
 			    {
 					tmp0 = get_s_value();
 					int2asc(tmp0, -1, buf3, 12);
 					usart_sendstring(buf3);
 					usart_send_crlf();
-					show_msg("OK. (AGC)", bcolor);
+					show_msg("AGCV.", bcolor);
+				}
+				
+				if(!strcmp(buf2, "AGCS")) //Return AGC seetings |Example: "GET AGCS"
+		        {
+					int2asc(cur_agc, -1, buf3, MAXRXBUFLEN);
+					usart_sendstring(buf3);
+					usart_send_crlf();
+					show_msg("AGCS.", bcolor);
+				}
+				
+				if(!strcmp(buf2, "TONE")) //Return TONE  seetings |Example: "GET TONE"
+		        {
+					int2asc(cur_tone, -1, buf3, MAXRXBUFLEN);
+					usart_sendstring(buf3);
+					usart_send_crlf();
+					show_msg("TONE.", bcolor);
+				}
+
+				if(!strcmp(buf2, "ATT")) //Return ATT  seetings |Example: "GET ATT"
+		        {
+					int2asc(cur_att, -1, buf3, MAXRXBUFLEN);
+					usart_sendstring(buf3);
+					usart_send_crlf();
+					show_msg("ATT.", bcolor);
 				}
 				
 				if(!strcmp(buf2, "LOSC")) //Return LO freq "GET LO [sideband]|Example: "GET LO 0"
@@ -4458,7 +4474,7 @@ int main(void)
 					int2asc(freq_temp0, -1, buf4, 16);
 					usart_sendstring(buf4);
 					usart_send_crlf();
-					show_msg("OK. (LOSC)", bcolor);
+					show_msg("LOSC.", bcolor);
 			    }
 			    
 			    if(!strcmp(buf2, "EEPROM")) //Return EEPROM byte "GET EEPROM [byte] [memory]: |Example: "GET EEPROM 127"
@@ -4469,7 +4485,7 @@ int main(void)
 					int2asc(tmp1, -1, buf4, 12);
 					usart_sendstring(buf4);
 					usart_send_crlf();
-					show_msg("OK. (EEPROM)", bcolor);
+					show_msg("EEPROM.", bcolor);
 			    }
 			}		
 		    
@@ -4484,153 +4500,3 @@ int main(void)
 	}
 	return 0;
 }
-
-//TEST ZONE
-/*
- * 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-
-void get_info_from_string(char*, char*, int);
-* 
-int main()
-{
-    char* ch1;
-    int t1;
-    
-    ch1 = malloc(20);
-    for(t1 = 0; t1 < 20; t1++)
-    {
-        ch1[t1] = 0;
-    }
-    get_info_from_string("GET LO 0", ch1, 1);
-    printf("*%s*\n", ch1);
-
-    return 0;
-}
-
-//Get data from Chr(32) separated string
-void get_info_from_string(char* istr, char *buf, int pos)
-{
-    int pos2 = 0;
-    int t1;
-    
-    //Find position 
-    for(t1 = 0; t1 < strlen(istr) && pos2 < pos; t1++)
-    {
-        if(istr[t1] == ' ')
-        {
-            pos2++;
-        }
-    }
-        
-    //Copy string to buffer
-    for(t1 = t1; t1 < strlen(istr); t1++)
-    {
-        if(istr[t1] != 32)
-        {
-            *buf++ = istr[t1];
-        }  
-        else
-        {
-            return;
-        }    
-    }
-}
-*/
-//. = 1
-//- = 0
-		
-        
-/*
- 
-#include <stdio.h>
-
-void make_morse_char(char);
-
-int main()
-{
-    make_morse_char('A');
-
-    return 0;
-}
-
-
-void make_morse_char(char ltr)
-{
-	char x, n;
-	int t1;
-
-    switch(ltr)
-    {
-		case('E'): x = 1; n = 1; break;
-		case('T'): x = 0; n = 1; break;
-		           
-		case('A'): x = 2; n = 2; break;          
-		case('I'): x = 3; n = 2; break;           
-		case('M'): x = 0; n = 2; break;           
-		case('N'): x = 1; n = 2; break;          
-		  
-		case('D'): x = 3; n = 3; break;
-		case('G'): x = 1; n = 3; break;                      
-		case('K'): x = 2; n = 3; break;           
-		case('O'): x = 0; n = 3; break;           
-		case('R'): x = 5; n = 3; break;           
-		case('S'): x = 7; n = 3; break;           
-		case('U'): x = 6; n = 3; break;           
-		case('W'): x = 4; n = 3; break;           
-		           
-		case('B'): x = 7; n = 4; break;
-		case('C'): x = 5; n = 4; break;
-		case('F'): x = 13; n = 4; break;           
-		case('H'): x = 15; n = 4; break;           
-		case('J'): x = 8; n = 4; break;          
-		case('L'): x = 11; n = 4; break;           
-		case('P'): x = 9; n = 4; break;                     
-		case('Q'): x = 2; n = 4; break;          
-		case('V'): x = 14; n = 4; break;           
-		case('X'): x = 6; n = 4; break;          
-		case('Y'): x = 4; n = 4; break;          
-		case('Z'): x = 3; n = 4; break;          
-		          
-		case('1'): x = 16; n = 5; break;                  
-		case('2'): x = 24; n = 5; break;                             
-		case('3'): x = 28; n = 5; break;                            
-		case('4'): x = 30; n = 5; break;                             
-		case('5'): x = 31; n = 5; break;                             
-		case('6'): x = 15; n = 5; break;                             
-		case('7'): x = 7;  n = 5; break;                                       
-		case('8'): x = 3;  n = 5; break;                            
-		case('9'): x = 1;  n = 5; break;                            
-		case('0'): x = 0;  n = 5; break;                            
-		case('/'): x = 13; n = 5; break;  //-..-.
-		           
-		case('.'): x = 42; n = 6; break; //.-.-.-                    
-		case(','): x = 15; n = 6; break;  //..-..         
-		case('?'): x = 51; n = 6; break;  //..--..         
-		case(';'): x = 10; n = 6; break;  // -.-.-         
-		case('-'): x = 30; n = 6; break;  //-....-   
-		   
-		default: x = 0; n = 0;           
-	}	           
-    
-    for(t1 = n - 1; t1 >= 0; t1--)
-    {
-        
-		if(x & (1 << t1))
-		{
-			printf(".");
-		}
-		else	
-		{
-			printf("-");
-		}
-	}	
-   
-}    		
-
-
-
-
-*/
